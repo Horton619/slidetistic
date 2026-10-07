@@ -24,6 +24,7 @@ def main(argv=None) -> int:
         sp.add_argument("file")
         sp.add_argument("--preset", default="any")
         sp.add_argument("--checks", help="comma-separated ids to run (default: each check's default)")
+        sp.add_argument("--crew-fonts", help="comma-separated fonts installed on the show machines")
         sp.add_argument("--json", action="store_true")
         if name == "repair":
             sp.add_argument("--fix", help="comma-separated ids to fix (default: each check's default)")
@@ -53,6 +54,7 @@ def main(argv=None) -> int:
         checks=_ids(args.checks),
         fixes=_ids(getattr(args, "fix", None)),
         preset=args.preset,
+        crew_fonts=_ids(args.crew_fonts) or set(),
     )
     emit = (lambda e: print(json.dumps(e, default=str), flush=True)) if args.json else (lambda e: None)
 

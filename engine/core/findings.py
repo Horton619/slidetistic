@@ -46,6 +46,7 @@ class Change:
     prop: str
     before: object
     after: object
+    part: str | None = None           # e.g. /ppt/slideMasters/slideMaster1.xml for non-shape edits
 
     def to_dict(self) -> dict:
         return asdict(self)

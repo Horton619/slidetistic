@@ -11,6 +11,7 @@ SOURCES = {"canva", "google", "keynote", "any"}
 class Context:
     thresholds: dict = field(default_factory=dict)
     preset: str = "any"
+    crew_fonts: set[str] = field(default_factory=set)   # casefolded; fonts installed on show machines
     layout: object = None   # LayoutProvider, phase 4
 
 

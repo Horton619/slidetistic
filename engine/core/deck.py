@@ -4,7 +4,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from lxml import etree
 from pptx import Presentation
+from pptx.opc.package import XmlPart
 from pptx.oxml.ns import qn
 
 from .geometry import Bounds, Transform
@@ -39,6 +41,9 @@ class Deck:
     def __init__(self, path: str | os.PathLike):
         self.path = Path(path)
         self.prs = Presentation(str(self.path))
+        # python-pptx keeps some XML parts (theme, presProps) as raw bytes. We parse them on
+        # demand and write them back in save(), so edits to them go through the same path.
+        self._blob_roots: dict[str, tuple[object, etree._Element]] = {}
 
     @property
     def slide_width(self) -> int:
@@ -90,8 +95,31 @@ class Deck:
                 return sv
         return None
 
+    def xml_parts(self) -> list[tuple[object, etree._Element]]:
+        """(part, root element) for every XML part, excluding embedded font data."""
+        out = []
+        for part in self.prs.part.package.iter_parts():
+            name = str(part.partname)
+            if not name.endswith(".xml") or name.startswith("/ppt/fonts/"):
+                continue
+            if isinstance(part, XmlPart):
+                out.append((part, part._element))
+            else:
+                if name not in self._blob_roots:
+                    self._blob_roots[name] = (part, etree.fromstring(part.blob))
+                out.append(self._blob_roots[name])
+        return out
+
+    def slide_number_of(self, part) -> int | None:
+        for i, slide in enumerate(self.slides):
+            if slide.part is part:
+                return i + 1
+        return None
+
     def save(self, out_path: str | os.PathLike) -> Path:
         """Atomic: write to a temp name beside the target, then rename over it."""
+        for part, root in self._blob_roots.values():
+            part._blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         out_path = Path(out_path)
         tmp = out_path.with_name(out_path.name + ".partial")
         self.prs.save(str(tmp))

@@ -1,0 +1,3 @@
+# Private names some apps write → the real installed family. Matching is exact (case-sensitive).
+# Add a line here when a new alias turns up; no code change needed.
+"Calibri (MS)": Calibri          # Canva (PAT MBD deck, 2026-10-06)

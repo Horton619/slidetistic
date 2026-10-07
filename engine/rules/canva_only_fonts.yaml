@@ -1,0 +1,5 @@
+# Fonts that only exist inside Canva. Decks using them can't render correctly anywhere else (F004).
+# family: suggested substitute (or null). Case-insensitive match on the family.
+# Seed list: extend from real decks in the corpus.
+Canva Sans: null
+Canva Student Font: null

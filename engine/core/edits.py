@@ -1,12 +1,14 @@
 """EditSession: the only way a check's fix() may change the deck. Every change is logged."""
 from __future__ import annotations
 
+from lxml import etree
+
 from .deck import ShapeView
 from .findings import Change
 
 
 class EditConflict(Exception):
-    """Two checks tried to change the same property of the same shape in one repair."""
+    """Two checks tried to change the same property of the same thing in one repair."""
 
 
 class FixRefused(Exception):
@@ -18,7 +20,15 @@ class EditSession:
         self.deck = deck
         self.changes: list[Change] = []
         self._owner: dict[tuple, str] = {}
-        self.check_id: str | None = None   # set by the runner before each fix()
+        self.check_id: str | None = None
+        self._runs_after: set[str] = set()
+
+    def begin(self, check_cls):
+        """Called by the runner before each check's fixes."""
+        self.check_id = check_cls.id
+        self._runs_after = set(check_cls.runs_after)
+
+    # --- shapes -------------------------------------------------------------------------------
 
     def set_geometry(self, sv: ShapeView, *, left=None, top=None, width=None, height=None):
         """Values are in the shape's own coordinate space (= slide space unless it's in a group)."""
@@ -28,27 +38,65 @@ class EditSession:
             before = getattr(sv.shape, prop)
             if before == int(value):
                 continue
-            self._claim(sv, prop)
+            self._claim((sv.slide_number, sv.shape_id, prop))
             setattr(sv.shape, prop, int(value))
-            self._log(sv, prop, before, int(value))
+            self._log(Change(self.check_id, sv.slide_number, sv.shape_id, sv.name, prop, before, int(value)))
 
     def set_attr(self, sv: ShapeView, element, attr: str, value: str | None, prop: str):
-        """Set (or remove, with value=None) an XML attribute on an element belonging to `sv`."""
+        """Set (or remove, with value=None) an XML attribute on an element belonging to shape `sv`."""
         before = element.get(attr)
         if before == value:
             return
-        self._claim(sv, prop)
-        if value is None:
-            del element.attrib[attr]
+        self._claim((sv.slide_number, sv.shape_id, prop))
+        _set(element, attr, value)
+        self._log(Change(self.check_id, sv.slide_number, sv.shape_id, sv.name, prop, before, value))
+
+    # --- deck-level XML (masters, layouts, theme, presentation.xml) ---------------------------
+
+    def set_part_attr(self, part, element, attr: str, value: str | None, prop: str):
+        before = element.get(attr)
+        if before == value:
+            return
+        partname = str(part.partname)
+        self._claim((partname, element.getroottree().getpath(element), attr))
+        _set(element, attr, value)
+        self._log(Change(self.check_id, None, None, None, prop, before, value, part=partname))
+
+    def replace_element(self, part, old, new, *, prop: str, before: str, after: str):
+        """Swap `old` for `new` (or remove it when new is None). before/after are human summaries."""
+        if new is not None and etree.tostring(old) == etree.tostring(new):
+            return
+        partname = str(part.partname)
+        self._claim((partname, old.getroottree().getpath(old)))
+        parent = old.getparent()
+        if new is None:
+            parent.remove(old)
         else:
-            element.set(attr, value)
-        self._log(sv, prop, before, value)
+            parent.replace(old, new)
+        self._log(Change(self.check_id, None, None, None, prop, before, after, part=partname))
 
-    def _claim(self, sv: ShapeView, prop: str):
-        key = (sv.slide_number, sv.shape_id, prop)
-        owner = self._owner.setdefault(key, self.check_id)
-        if owner != self.check_id:
-            raise EditConflict(f"{prop} on slide {sv.slide_number} '{sv.name}' was already changed by {owner}")
+    def drop_rel(self, part, r_id: str, *, prop: str, before: str):
+        """Remove a relationship. Its target part is left out of the saved file if nothing else uses it."""
+        partname = str(part.partname)
+        self._claim((partname, "rel", r_id))
+        part.rels.pop(r_id)
+        self._log(Change(self.check_id, None, None, None, prop, before, None, part=partname))
 
-    def _log(self, sv: ShapeView, prop: str, before, after):
-        self.changes.append(Change(self.check_id, sv.slide_number, sv.shape_id, sv.name, prop, before, after))
+    # ------------------------------------------------------------------------------------------
+
+    def _claim(self, key: tuple):
+        owner = self._owner.get(key)
+        # A check that declares runs_after=[owner] is refining that check's result, not fighting it.
+        if owner is not None and owner != self.check_id and owner not in self._runs_after:
+            raise EditConflict(f"{key[-1]} was already changed by {owner}")
+        self._owner[key] = self.check_id
+
+    def _log(self, change: Change):
+        self.changes.append(change)
+
+
+def _set(element, attr: str, value: str | None):
+    if value is None:
+        element.attrib.pop(attr, None)
+    else:
+        element.set(attr, value)

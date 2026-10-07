@@ -1,0 +1,29 @@
+# fixable: suffix stripped from the family name and turned into b/i flags (F001).
+# Longest first: "Bold Italic" must win over "Italic".
+fixable:
+  - {suffix: Bold Italic, bold: true, italic: true}
+  - {suffix: Bold, bold: true}
+  - {suffix: Italic, italic: true}
+
+# flag_only: weights PowerPoint has no flag for. They may be real installed families
+# ("Montserrat SemiBold"), so F003 reports them and changes nothing. Matched case-insensitively.
+flag_only:
+  - ExtraLight Italic
+  - Light Italic
+  - Medium Italic
+  - SemiBold Italic
+  - ExtraBold Italic
+  - Black Italic
+  - Thin
+  - ExtraLight
+  - Extra Light
+  - Light
+  - Medium
+  - SemiBold
+  - Semi Bold
+  - DemiBold
+  - ExtraBold
+  - Extra Bold
+  - Black
+  - Heavy
+  - Regular

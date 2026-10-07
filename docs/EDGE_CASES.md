@@ -4,6 +4,9 @@ One entry per "oh by the way". Newest first.
 
 | Date | What was seen | Source | Check | Fixture | Status |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-07 | Real font names that end in a style word ('Arial Rounded MT Bold') must not be stripped | Design | F001 | `test_f001_real_family_ending_in_bold_is_left_alone` | Yellow, no fix unless the base family is known |
+| 2026-10-07 | Two Canva embeds ('Calibri (MS)', 'Calibri (MS) Bold') both resolve to Calibri; reported twice | Canva | F006 | `canva_fonts` corner deck | One finding per family |
+| 2026-10-07 | 'Montserrat SemiBold' with no Montserrat anywhere reported by both F003 and F007 | Design | F003, F007 | `test_f003_unavailable_family_left_to_f007` | F003 only when base family available; F007 owns "missing" |
 | 2026-10-07 | python-pptx adds `<p:sldIdLst>` to a slideless deck just from reading `prs.slides` | Engine | All (Deck model) | `CORNER_DECKS['empty']` | Fixed in `Deck.slides` |
 | 2026-10-06 | Slides that auto-advance on a timer during a show | General (David) | P001 | `p001_adv_after_5s` | Spec'd |
 | 2026-10-06 | Videos set to play "When clicked on" or "In click sequence" instead of Automatically | General (David) | M001 | `media_modes/*` (capture from PowerPoint, Mac + Win) | Spec'd |

@@ -24,6 +24,7 @@ class RunConfig:
     checks: set[str] | None = None   # None = each check's default_check
     fixes: set[str] | None = None    # None = each check's default_fix
     preset: str = "any"
+    crew_fonts: set[str] = field(default_factory=set)
 
     def check_on(self, c: type[Check]) -> bool:
         return c.id in self.checks if self.checks is not None else c.default_check
@@ -60,7 +61,8 @@ class Result:
 
 
 def make_context(config: RunConfig) -> Context:
-    return Context(thresholds=rules.load("thresholds"), preset=config.preset)
+    return Context(thresholds=rules.load("thresholds"), preset=config.preset,
+                   crew_fonts={f.casefold() for f in config.crew_fonts})
 
 
 def detect_all(deck: Deck, checks: list[type[Check]], config: RunConfig, ctx: Context,
@@ -118,7 +120,7 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
     for n, cls in enumerate(fixers, 1):
         emit({"type": "progress", "stage": "fix", "check": cls.id, "index": n, "total": len(fixers)})
         check = cls()
-        edits.check_id = cls.id
+        edits.begin(cls)
         try:
             current = check.detect(deck, ctx)
         except Exception:  # noqa: BLE001 — already reported as tool_error by the first scan

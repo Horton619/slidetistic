@@ -1,0 +1,30 @@
+# Fonts that ship with Microsoft Office on BOTH Mac and Windows, so a show machine always has them.
+# Used by F006 (don't embed these) and F007 (don't report these as missing). Case-insensitive.
+# Conservative on purpose: when unsure, leave it out. A missing entry costs a false
+# "may be missing" report; a wrong entry hides a real missing font.
+- Arial
+- Arial Black
+- Arial Narrow
+- Calibri
+- Calibri Light
+- Cambria
+- Cambria Math
+- Candara
+- Century Gothic
+- Comic Sans MS
+- Consolas
+- Constantia
+- Corbel
+- Courier New
+- Franklin Gothic Medium
+- Georgia
+- Gill Sans MT
+- Impact
+- Lucida Console
+- Symbol
+- Tahoma
+- Times New Roman
+- Trebuchet MS
+- Verdana
+- Webdings
+- Wingdings
