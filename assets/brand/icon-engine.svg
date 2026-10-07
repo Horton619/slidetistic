@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+<!-- App icon, 64 px and up (dock, installer, About). Engine only, no cargo. -->
+<rect width="128" height="128" rx="28" fill="#0E1420"/>
+<g fill="#4A5878"><circle cx="82" cy="21" r="5"/><circle cx="69" cy="14" r="6.5"/></g>
+<g transform="translate(-97 2) scale(0.82)">
+<g id="engine">
+  <rect x="141" y="40" width="38" height="8" rx="2" fill="#DDE2F0"/>
+  <rect x="145" y="46" width="30" height="50" fill="#DDE2F0"/>
+  <rect x="152" y="54" width="16" height="14" rx="2" fill="#070910"/>
+  <rect x="165" y="62" width="75" height="34" rx="6" fill="#DDE2F0"/>
+  <rect x="165" y="78" width="67" height="4" fill="#9B8CFF"/>
+  <path d="M188 62 a9 9 0 0 1 18 0 Z" fill="#DDE2F0"/>
+  <path d="M222 62 L222 44 L215 34 L239 34 L232 44 L232 62 Z" fill="#DDE2F0"/>
+  <rect x="232" y="60" width="14" height="38" rx="4" fill="#8A9BBF"/>
+  <circle cx="239" cy="68" r="4" fill="#9B8CFF"/>
+  <rect x="145" y="96" width="105" height="6" fill="#8A9BBF"/>
+  <path d="M246 102 L262 118 L246 118 Z" fill="#8A9BBF"/>
+  <g fill="#070910" stroke="#DDE2F0" stroke-width="3"><circle cx="170" cy="107" r="12"/><circle cx="200" cy="107" r="12"/><circle cx="233" cy="111" r="8"/></g>
+  <line x1="170" y1="107" x2="200" y2="107" stroke="#9B8CFF" stroke-width="3"/>
+</g>
+</g>
+<line x1="14" y1="100" x2="114" y2="100" stroke="#4A5878" stroke-width="3" stroke-linecap="round"/>
+</svg>
