@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+node_modules/
+dist/
+build/*
+!build/entitlements.mac.plist
+backend/dist/
+backend/build/
+
+# Client decks never go in git. Real decks live in the local corpus folder.
+corpus/
+*.pptx
+!tests/fixtures/**/*.pptx
+*- mended*

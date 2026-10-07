@@ -1,0 +1,9 @@
+# Tunable numbers. Every check declares the keys it reads in its `thresholds` list.
+# Lengths are inches unless the key says otherwise.
+
+slide_margin_in: 0.2            # how far inside the slide edge a moved text box lands
+centered_shift_max_in: 0.25     # a centered box hitting the margin may shift this far; beyond → refuse
+width_headroom_pct: 6           # laid-out width + this % when widening (judgment value; tune on corpus)
+body_widen_max_pct: 10          # multi-line body text widens at most this much, then grows in height
+height_headroom_lines: 0.5      # laid-out height + this many lines when growing height
+large_file_warn_mb: 1024        # UI warns "this may take longer" above this size
