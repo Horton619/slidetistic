@@ -15,3 +15,6 @@ corpus/
 *.pptx
 !tests/fixtures/**/*.pptx
 *- mended*
+
+# Local path to the real-deck corpus (pytest -m corpus)
+.corpus-path

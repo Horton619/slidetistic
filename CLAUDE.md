@@ -31,7 +31,7 @@ before adding a fix.
    existing check? A new edge case in an existing check = fix that check + add a fixture; don't
    create a near-duplicate check.
 2. **Log it** in `docs/EDGE_CASES.md` (date, what David saw, source app, which check, fixture name).
-3. **Pick the next free ID** in the group (`F` fonts, `G` geometry, `L` layout fit, `P` playback, `M` media, `X` other). IDs are never reused or renumbered.
+3. **Pick the next free ID** in the group (`F` fonts, `G` geometry, `L` layout fit, `P` playback, `M` media, `C` content, `X` other). IDs are never reused or renumbered.
 4. **Copy** `engine/checks/_template.py` to `engine/checks/<group>/<ID>_<slug>.py`. Fill in the
    metadata. New checks start with `default_fix = False` unless David says otherwise.
 5. **Write fixtures first** in `tests/checks/test_<ID>_<slug>.py`: at least one deck where it
@@ -68,6 +68,12 @@ venv/bin/python -m engine.cli list-checks --json
 venv/bin/python -m engine.cli scan <deck.pptx> --json
 venv/bin/python -m engine.cli repair <deck.pptx> --preset canva --json
 ```
+
+**Corpus:** the real-deck folder is read from `--corpus`, `$SLIDETISTIC_CORPUS`, or the git-ignored
+`.corpus-path` file (currently David's `~/Downloads`). Snapshots live in the git-ignored `corpus/snapshots/`.
+A run takes ~3 min for ~66 decks. It always fails on a crashed check, a repair that introduces a problem,
+or a second repair that still changes something. The "corpus diff" section at the end is what to report
+to David; only run `--update-snapshots` after he accepts it.
 
 Test-only checks live in `tests/dummy_checks/` (X998 crashes on purpose, X999 fixes negative-x text).
 They prove the runner and contracts work; they are never shipped.
