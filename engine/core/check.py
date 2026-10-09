@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-GROUPS = ["fonts", "geometry", "layout", "playback", "media", "other"]
-GROUP_LETTERS = {"F": "fonts", "G": "geometry", "L": "layout", "P": "playback", "M": "media", "X": "other"}
+GROUPS = ["fonts", "geometry", "layout", "playback", "media", "content", "other"]
+GROUP_LETTERS = {"F": "fonts", "G": "geometry", "L": "layout", "P": "playback", "M": "media", "C": "content", "X": "other"}
 SOURCES = {"canva", "google", "keynote", "any"}
 
 

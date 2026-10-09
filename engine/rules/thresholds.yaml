@@ -7,3 +7,12 @@ width_headroom_pct: 6           # laid-out width + this % when widening (judgmen
 body_widen_max_pct: 10          # multi-line body text widens at most this much, then grows in height
 height_headroom_lines: 0.5      # laid-out height + this many lines when growing height
 large_file_warn_mb: 1024        # UI warns "this may take longer" above this size
+target_aspect: 1.7778           # 16:9; G006 flags other slide shapes
+aspect_tolerance_pct: 1
+output_width_px: 1920           # M008/M009 judge images against this output width
+oversize_ratio: 4               # image has 4x the pixels it's shown at → oversized (M008)
+oversize_min_mb: 2              # …and the file is at least this big
+low_res_ratio: 0.5              # image shown at >200% of its pixels → soft on screen (M009). Corpus: 0.75 gave 173 hits in 20 of 51 decks
+low_res_min_shown_px: 480       # …and it fills at least a quarter of the screen width (small logos don't matter)
+deck_size_warn_mb: 500          # X002
+filename_max_chars: 120         # X002

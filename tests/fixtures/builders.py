@@ -25,7 +25,8 @@ CANVA = (20, 11.25)
 STANDARD = (10, 7.5)        # 4:3
 
 
-def text_box(text="Text", x=1, y=1, w=4, h=1, font=None, size=None, rotation=0, name=None, bold=None):
+def text_box(text="Text", x=1, y=1, w=4, h=1, font=None, size=None, rotation=0, name=None, bold=None,
+             link=None):
     def add(shapes):
         tb = shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
         tb.text_frame.text = text
@@ -36,6 +37,8 @@ def text_box(text="Text", x=1, y=1, w=4, h=1, font=None, size=None, rotation=0, 
             run.font.size = Pt(size)
         if bold is not None:
             run.font.bold = bold
+        if link:
+            run.hyperlink.address = link
         if rotation:
             tb.rotation = rotation
         if name:
@@ -44,9 +47,13 @@ def text_box(text="Text", x=1, y=1, w=4, h=1, font=None, size=None, rotation=0, 
     return add
 
 
-def picture(x=1, y=1, w=2, h=2):
+def picture(x=1, y=1, w=2, h=2, px=(4, 4), link=None, blob=None):
+    """`px` is the image's pixel size; `blob` overrides the image bytes entirely."""
     def add(shapes):
-        return shapes.add_picture(io.BytesIO(_png()), Inches(x), Inches(y), Inches(w), Inches(h))
+        pic = shapes.add_picture(io.BytesIO(blob or _png(*px)), Inches(x), Inches(y), Inches(w), Inches(h))
+        if link:
+            pic.click_action.hyperlink.address = link
+        return pic
     return add
 
 
@@ -83,8 +90,12 @@ def embed(declared: str, slot: str, family: str, style: str = "Regular", *, weig
 
 
 def make_deck(folder: Path, *shapes, slides=None, size=WIDE, notes=None, layout=6,
-              titles=None, name="deck.pptx", embeds=()) -> Path:
-    """`shapes` fills one slide; `slides` is a list of shape lists. layout 6 = Blank, 0/1 have placeholders."""
+              titles=None, name="deck.pptx", embeds=(), hidden=(), post=None) -> Path:
+    """`shapes` fills one slide; `slides` is a list of shape lists. layout 6 = Blank, 0/1 have placeholders.
+
+    notes: one string for every slide, or a list per slide. hidden: 1-based slide numbers.
+    post(prs): last-chance hook for parts the helpers don't cover (comments, macros, external rels).
+    """
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(size[0]), Inches(size[1])
     for i, slide_shapes in enumerate(slides if slides is not None else [list(shapes)]):
@@ -93,10 +104,15 @@ def make_deck(folder: Path, *shapes, slides=None, size=WIDE, notes=None, layout=
             add(slide.shapes)
         if titles and slide.shapes.title is not None:
             slide.shapes.title.text = titles[i]
-        if notes:
-            slide.notes_slide.notes_text_frame.text = notes
+        slide_notes = notes[i] if isinstance(notes, list) else notes
+        if slide_notes:
+            slide.notes_slide.notes_text_frame.text = slide_notes
+        if i + 1 in hidden:
+            slide._element.set("show", "0")
     if embeds:
         _embed_fonts(prs, embeds)
+    if post:
+        post(prs)
     path = Path(folder) / name
     prs.save(str(path))
     return path
@@ -157,6 +173,12 @@ def make_eot(ttf: bytes, family: str, style: str, weight: int, italic: bool, fs_
     body = fixed + names
     total = 4 + len(body) + len(data)
     return struct.pack("<I", total) + body + data
+
+
+def add_part(prs, source_part, partname: str, content_type: str, reltype: str, blob: bytes = b"x"):
+    """Attach a bare part (comments, vbaProject, activeX…) to `source_part`."""
+    part = Part(PackURI(partname), content_type, prs.part.package, blob)
+    return source_part.relate_to(part, reltype)
 
 
 def _png(w=4, h=4) -> bytes:

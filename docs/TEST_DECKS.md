@@ -36,6 +36,19 @@ when you have one. Example: `canva_pat-mbd.pptx`, `canva_pat-mbd - handfixed.ppt
 | 17 | A deck with **trimmed video** and one with **audio** | M002 |
 | 18 | A Canva or Google deck with video: how do their exports encode it? | M001 `no_timing` |
 
+## Priority 2b: content and links (added 2026-10-09)
+
+| # | What to find | Feeds |
+|---|---|---|
+| 20 | A **Google Slides deck with an inserted YouTube video**, downloaded as .pptx | M005 (how Google really encodes it) |
+| 21 | A PowerPoint deck with an **"Online Video"** inserted (Insert → Video → Online) | M005 |
+| 22 | Decks with **video links in the speaker notes** ("play this: https://…") | M006 |
+| 23 | An **unfinished template deck**: "Click to add…", "Lorem ipsum", "[Speaker name]", "VIDEO HERE" slides | C001, C002 |
+| 24 | A deck with **hidden slides** and one with **review comments** left in | C004, C007 |
+| 25 | A deck with a **linked Excel chart** (linked, not embedded) from someone's PC | X004, X003 |
+| 26 | A deck with a **huge phone photo** shown small, and a **tiny logo** stretched full-screen | M008, M009 |
+| 27 | A deck with **click animations** (several builds per slide), saved from PowerPoint on Mac **and** Windows | P005 (click map) |
+
 ## Priority 3: Keynote (after the core loop works)
 
 | # | What to find | Feeds |

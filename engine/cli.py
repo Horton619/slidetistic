@@ -85,7 +85,7 @@ def _fail(as_json: bool, message: str):
 
 def _print_human(result: runner.Result):
     for f in result.findings:
-        where = f"Slide {f.slide} · {f.shape_name}" if f.slide else "Deck"
+        where = (f"Slide {f.slide}" + (f" · {f.shape_name}" if f.shape_name else "")) if f.slide else "Deck"
         print(f"{ICON.get(f.status, '·')} {f.check_id}  {where}: {f.message}")
     s = result.summary()
     print(f"\n{s['green_fixed']} fixed · {s['yellow']} to look at · {s['red']} still broken"

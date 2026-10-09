@@ -1,0 +1,43 @@
+# Fonts that are on SOME show machines (F007 reports them yellow, not red).
+# Case-insensitive. Corpus 2026-10-09: Aptos alone was in 24 of 51 real decks.
+
+# Microsoft 365 cloud fonts: downloaded on demand by current Office when online.
+# Missing on Office 2019/2021 and on machines that have never been online with M365.
+office_cloud:
+  - Aptos
+  - Aptos Display
+  - Aptos Narrow
+  - Aptos Serif
+  - Aptos Mono
+  - Grandview
+  - Grandview Display
+  - Seaford
+  - Seaford Display
+  - Skeena
+  - Skeena Display
+  - Tenorite
+  - Tenorite Display
+  - Bierstadt
+  - Bierstadt Display
+  - Neue Haas Grotesk Text Pro
+  - Neue Haas Grotesk Display Pro
+  - Avenir Next LT Pro
+  - Avenir Next LT Pro Demi
+  - Avenir Next LT Pro Light
+
+# Installed with Windows (show machines are usually PCs) but not necessarily on Macs.
+windows:
+  - Segoe UI
+  - Segoe UI Light
+  - Segoe UI Semibold
+  - Segoe UI Semilight
+  - Segoe UI Black
+  - Segoe UI Emoji
+  - Segoe UI Symbol
+  - Segoe Print
+  - Segoe Script
+  - Bahnschrift
+  - Wingdings 2
+  - Wingdings 3
+  - Sitka Text
+  - Ink Free

@@ -16,7 +16,7 @@ class OfficeFontEmbedded(Check):
     def detect(self, deck, ctx):
         by_family: dict[str, list] = {}
         for ef in fonts.embedded_fonts(deck):
-            if fonts.is_office_font(_family(ef)):
+            if _family(ef) and fonts.is_office_font(_family(ef)):
                 by_family.setdefault(_family(ef), []).append(ef)
         return [
             Finding(self.id, Status.YELLOW,
@@ -44,6 +44,13 @@ class OfficeFontEmbedded(Check):
                                   before="empty list", after="removed")
 
 
-def _family(ef) -> str:
-    readable = [s.info.family for s in ef.slots if s.info]
-    return fonts.alias(readable[0]) if readable else fonts.normalized_family(ef.typeface)
+def _family(ef) -> str | None:
+    """The Office family this entry is a redundant copy of, or None.
+
+    Goes by the listed name, and the files inside must agree. Exporters (Google, corpus 2026-10-09)
+    file Arial under 'Google Sans' / 'Helvetica' as a deliberate stand-in: the text asks for the
+    listed name, so dropping that 'Arial' embed would leave the text with no font at all.
+    """
+    listed = fonts.normalized_family(ef.typeface)
+    files = {fonts.alias(s.info.family) for s in ef.slots if s.info}
+    return listed if files <= {listed} else None

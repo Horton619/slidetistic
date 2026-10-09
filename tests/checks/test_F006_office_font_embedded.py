@@ -20,3 +20,10 @@ def test_f006_last_embed_removed_removes_list(tmp_path):
 def test_f006_non_office_embed_kept(tmp_path):
     src = make_deck(tmp_path, embeds=[embed("Roboto", "regular", "Roboto")])
     assert statuses(run_scan(src, "F006"), "F006") == {}
+
+
+def test_f006_keeps_arial_standing_in_for_another_font(tmp_path):
+    # Corpus 2026-10-09 (Google export): Arial files filed as 'Google Sans' are a deliberate stand-in.
+    # Removing them left the text with no font at all (the re-scan caught it as 'introduced by F006').
+    src = make_deck(tmp_path, embeds=[embed("Google Sans", "regular", "Arial"), embed("Google Sans", "bold", "Arial", "Bold")])
+    assert statuses(run_scan(src, "F006"), "F006") == {}

@@ -1,0 +1,39 @@
+# C001: template / unfinished text. Matched case-insensitively.
+# red: unambiguous leftovers. yellow: often leftovers, sometimes real text ("TBD" in a schedule).
+red:
+  - click to add
+  - click to edit
+  - add a heading
+  - add a subheading
+  - add a little bit of body text
+  - add your text
+  - your text here
+  - your title here
+  - insert text here
+  - insert image here
+  - insert photo here
+  - lorem ipsum
+  - dolor sit amet
+red_patterns:
+  # Square-bracket fill-ins: [Name], [Speaker Name], [Insert logo], [Your company], [Date TBD]
+  - '\[[^\]]*\b(name|title|company|date|insert|your|logo|speaker|photo|image|headshot|tbd)\b[^\]]*\]'
+yellow_words:            # whole-word matches
+  - TBD
+  - TBC
+  - TK
+  - XXX
+  - placeholder
+
+# C002: a slide whose only text is one of these (punctuation ignored) is a placeholder slide.
+slide_placeholders:
+  - video here
+  - insert video
+  - insert video here
+  - video placeholder
+  - play video
+  - image here
+  - insert image
+  - photo here
+  - placeholder
+  - coming soon
+  - tbd

@@ -1,0 +1,24 @@
+# Link patterns for M005 (online video), M006 (media to download), P004, X004. Regex, case-insensitive.
+# video: true = plays from the web inside PowerPoint/Google (needs venue internet).
+sites:
+  - {label: YouTube, pattern: '(youtube\.com/(watch|embed|shorts|live)|youtu\.be/)', video: true}
+  - {label: Vimeo, pattern: 'vimeo\.com/', video: true}
+  - {label: Loom, pattern: 'loom\.com/(share|embed)', video: true}
+  - {label: Wistia, pattern: '(wistia\.(com|net)|wi\.st/)', video: true}
+  - {label: Google Drive, pattern: '(drive\.google\.com|docs\.google\.com/.*/file/)'}
+  - {label: Dropbox, pattern: '(dropbox\.com/|dropboxusercontent\.com/)'}
+  - {label: Box, pattern: '(^|[/.])box\.com/s/'}
+  - {label: OneDrive / SharePoint, pattern: '(onedrive\.live\.com|1drv\.ms/|sharepoint\.com/)'}
+  - {label: Frame.io, pattern: '(frame\.io/|f\.io/)'}
+  - {label: WeTransfer, pattern: '(wetransfer\.com/|we\.tl/)'}
+  - {label: Canva video, pattern: 'canva\.com/.*video'}
+
+# A URL ending in one of these is a media file whatever the site.
+file_extensions: '\.(mp4|mov|m4v|avi|wmv|mkv|webm|mp3|wav|m4a|aac)$'
+
+# Targets that point at someone's own computer or network share.
+local_paths:
+  - '^file:'
+  - '^[a-z]:[\\/]'
+  - '^\\\\'
+  - '^/(Users|Volumes|home)/'

@@ -20,10 +20,30 @@ class FontMissingOnShowMachines(Check):
             fam = fonts.normalized_family(r.typeface)
             if fam.casefold() not in covered and r.typeface.casefold() not in covered:
                 by_family[fam].append(r)
-        return [
-            Finding(self.id, Status.RED,
-                    f"{fam} isn't embedded and isn't an Office font. Unless it's installed on the show "
-                    f"machine, PowerPoint swaps in another font ({fonts.where(group)}).",
-                    subject=fam, evidence={**fonts.usage_evidence(group), "names": sorted({r.typeface for r in group})})
-            for fam, group in sorted(by_family.items())
-        ]
+        mac_only = {k.casefold(): v for k, v in rules.load("mac_only_fonts").items()}
+        cloud, windows = rules.names("conditional_fonts", "office_cloud"), rules.names("conditional_fonts", "windows")
+        findings = []
+        for fam, group in sorted(by_family.items()):
+            swap = mac_only.get(fam.casefold())
+            if fam.casefold() in cloud:
+                findings.append(Finding(self.id, Status.YELLOW,
+                    f"{fam} is a Microsoft 365 cloud font: current Office downloads it when online, but "
+                    f"Office 2019/2021 or an offline machine won't have it ({fonts.where(group)}).",
+                    subject=fam, evidence={**fonts.usage_evidence(group), "tier": "office_cloud"}))
+                continue
+            if fam.casefold() in windows:
+                findings.append(Finding(self.id, Status.YELLOW,
+                    f"{fam} comes with Windows: fine on a PC show machine, but it will look different "
+                    f"when previewed on a Mac ({fonts.where(group)}).",
+                    subject=fam, evidence={**fonts.usage_evidence(group), "tier": "windows"}))
+                continue
+            if swap:
+                msg = (f"{fam} is a Mac system font, so Windows show machines won't have it "
+                       f"({fonts.where(group)}). Suggested swap: {swap}.")
+            else:
+                msg = (f"{fam} isn't embedded and isn't an Office font. Unless it's installed on the show "
+                       f"machine, PowerPoint swaps in another font ({fonts.where(group)}).")
+            findings.append(Finding(self.id, Status.RED, msg, subject=fam,
+                evidence={**fonts.usage_evidence(group), "names": sorted({r.typeface for r in group}),
+                          "mac_only_swap": swap}))
+        return findings

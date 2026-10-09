@@ -21,5 +21,5 @@ def test_pat_like_canva_deck(tmp_path):
     assert len(font_parts(out)) == 2
     s = result.summary()
     assert (s["red"], s["tool_error"]) == (0, 0)
-    # Only the compressed Roboto regular remains, as a yellow "install it" note (F008, report-only).
-    assert [(f.check_id, f.subject) for f in result.findings if f.status.value == "yellow"] == [("F008", "Roboto/regular")]
+    # Compressed embeds are normal PowerPoint behaviour, so nothing is left to look at.
+    assert s["yellow"] == 0

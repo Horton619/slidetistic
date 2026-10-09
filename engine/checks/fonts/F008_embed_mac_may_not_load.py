@@ -4,9 +4,9 @@ from engine.core import fonts
 
 class EmbedMacMayNotLoad(Check):
     id = "F008"
-    title = "Embedded font Mac may not load"
+    title = "Embedded font licence forbids embedding"
     group = "fonts"
-    description = "Embedded fonts stored compressed, or whose license forbids embedding. Install the font instead."
+    description = "Embedded fonts whose licence says they must not be embedded. PowerPoint may ignore the copy; install the font instead."
     report_only = True
     sources = ["canva", "google", "any"]
 
@@ -17,12 +17,11 @@ class EmbedMacMayNotLoad(Check):
                 if not s.info:
                     continue
                 fam = fonts.alias(s.info.family)
-                if s.info.compressed:
-                    why = "is stored in a compressed format Mac PowerPoint may not load"
-                elif s.info.fs_type & fonts.FSTYPE_RESTRICTED:
-                    why = "has a license flag that forbids embedding, so PowerPoint may ignore the copy"
-                else:
+                # Compression is NOT a warning sign: PowerPoint compresses every embed it saves
+                # (corpus 2026-10-09: 101 of 101, Mac and Windows).
+                if not s.info.fs_type & fonts.FSTYPE_RESTRICTED:
                     continue
+                why = "has a licence flag that forbids embedding, so PowerPoint may ignore the copy"
                 findings.append(Finding(self.id, Status.YELLOW,
                     f"{fam} ({s.slot}) {why}. Safest: install {fam} on the show machine.",
                     subject=f"{fam}/{s.slot}",

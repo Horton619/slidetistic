@@ -24,7 +24,7 @@ def test_ids_unique_and_discovery_works():
 
 @pytest.mark.parametrize("cls", ALL, ids=ids)
 def test_metadata_valid(cls):
-    assert re.fullmatch(r"[FGLPMX]\d{3}", cls.id), cls.id
+    assert re.fullmatch(r"[FGLPMCX]\d{3}", cls.id), cls.id
     assert cls.group in GROUPS
     assert GROUP_LETTERS[cls.id[0]] == cls.group, f"{cls.id} is in group {cls.group}"
     assert cls.title and cls.description
