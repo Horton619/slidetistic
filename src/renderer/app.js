@@ -196,6 +196,37 @@ function summaryChips(sum) {
          `<span class="chip r">✕ ${sum.red + sum.tool_error} ${w.broken}</span>`;
 }
 
+// Media is the operator's biggest pre-show job (download, offline, re-embed), so it gets its own signal.
+// Level: red = won't play offline as is; amber = files to fetch or keep with the deck; blue = all embedded.
+function mediaSummary(data) {
+  const fs = data?.findings || [];
+  const by = (id, status) => fs.filter((f) => f.check_id === id && (!status || f.status === status));
+  const inv = by('M002');
+  const slides = (list) => [...new Set(list.map((f) => f.slide).filter(Boolean))].sort((a, b) => a - b);
+  const issues = [];
+  const online = by('M005'), missing = by('M003', 'red'), nearby = by('M003', 'yellow'), links = by('M006');
+  if (online.length) issues.push({ lvl: 'r', n: online.length, what: `online video${online.length > 1 ? 's' : ''} to download and embed (won't play offline)`, slides: slides(online) });
+  if (missing.length) issues.push({ lvl: 'r', n: missing.length, what: `linked file${missing.length > 1 ? 's' : ''} missing: get ${missing.length > 1 ? 'them' : 'it'} and embed`, slides: slides(missing) });
+  if (links.length) issues.push({ lvl: 'y', n: links.length, what: `video link${links.length > 1 ? 's' : ''} in the slides or notes to download`, slides: slides(links) });
+  if (nearby.length) issues.push({ lvl: 'y', n: nearby.length, what: `linked file${nearby.length > 1 ? 's' : ''} next to the deck: copy together or embed`, slides: slides(nearby) });
+  const videos = inv.filter((f) => f.evidence?.kind === 'video').length;
+  const audio = inv.filter((f) => f.evidence?.kind === 'audio').length;
+  if (!issues.length && !inv.length) return null;
+  const lvl = issues.some((i) => i.lvl === 'r') ? 'r' : issues.length ? 'y' : 'b';
+  const parts = [videos && `${videos} video${videos > 1 ? 's' : ''}`, audio && `${audio} audio clip${audio > 1 ? 's' : ''}`].filter(Boolean);
+  const embedded = inv.filter((f) => !f.evidence?.linked).length;
+  const inventory = parts.length ? `${parts.join(', ')}${embedded === inv.length ? ', all embedded' : ''}` : '';
+  return { lvl, issues, inventory, count: inv.length + online.length + links.length, slides: slides(inv) };
+}
+
+const SPEAKER = '<svg class="spk" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10L5 10H2z" fill="currentColor"/>' +
+  '<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.6a6 6 0 0 1 0 8.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+function mediaChip(m) {
+  const tip = [m.inventory && `Media: ${m.inventory}.`, ...m.issues.map((i) => `${i.n} ${i.what}.`)].filter(Boolean).join(' ');
+  return `<span class="chip media ${m.lvl}" title="${esc(tip)}">${SPEAKER}${m.count}</span>`;
+}
+
 function renderQueue() {
   $('queue-count').textContent = S.decks.length ? `${S.decks.length} deck${S.decks.length > 1 ? 's' : ''}` : '';
   $('queue').innerHTML = S.decks.map((d) => {
@@ -204,7 +235,10 @@ function renderQueue() {
     if (d.status === 'error') body = `<div class="chips"><span class="chip r">✕ ${esc(d.error)}</span></div>`;
     else if (d.status === 'scanning' || d.status === 'repairing' || d.status === 'queued')
       body = `<div class="chips"><span class="chip v">${esc(d.status === 'queued' ? 'Waiting…' : d.stage)}</span></div><div class="mini-bar"><i></i></div>`;
-    else if (sum) body = `<div class="chips">${summaryChips(sum).replace(/ (fixed|to look at|still broken|choo-choo'd|sus|derailed)/g, '')}</div>`;
+    else if (sum) {
+      const m = mediaSummary(d.review.data);
+      body = `<div class="chips">${summaryChips(sum).replace(/ (fixed|to look at|still broken|choo-choo'd|sus|derailed)/g, '')}${m ? mediaChip(m) : ''}</div>`;
+    }
     else body = '';
     const sub = [d.review?.data?.source?.kind, d.status === 'repaired' ? 'repaired' : null].filter(Boolean).join(' · ');
     return `<div class="card ${d.id === S.sel ? 'sel' : ''} ${d.status === 'error' ? 'err' : ''}" data-id="${d.id}" title="${esc(d.path)}">
@@ -243,6 +277,19 @@ function renderResults(deck) {
   const off = [...new Set((data?.findings || []).filter((f) => f.status === 'red' && f.subject === 'off-slide' && f.slide).map((f) => f.slide))].sort((a, b) => a - b);
   $('alert').hidden = !off.length;
   if (off.length) $('alert').innerHTML = `✕ Text runs off the slide on slide${off.length > 1 ? 's' : ''} ${off.map((n) => `<a data-slide="${n}">${n}</a>`).join(', ')}. Fix before the show.`;
+
+  const m = deck.status === 'error' ? null : mediaSummary(data);
+  const mb = $('media-banner');
+  mb.hidden = !m;
+  if (m) {
+    const slideLinks = (list) => (list.length ? ` (slide${list.length > 1 ? 's' : ''} ${list.map((n) => `<a data-slide="${n}">${n}</a>`).join(', ')})` : '');
+    const head = { r: 'Media won\'t play offline as it is', y: 'Media needs prep before the show', b: 'This deck plays media' }[m.lvl];
+    mb.className = `media-banner ${m.lvl}`;
+    mb.innerHTML = `${SPEAKER}<div class="mb-body"><b>${head}</b>` +
+      m.issues.map((i) => `<div class="mb-issue ${i.lvl}">${i.n} ${esc(i.what)}${slideLinks(i.slides)}</div>`).join('') +
+      (m.inventory ? `<div class="mb-inv">${esc(m.inventory)}${slideLinks(m.slides)}. Check ${m.count > 1 ? 'they play' : 'it plays'} on the show machine.</div>` : '') +
+      `</div><button class="btn" data-goto-media>Media tab</button>`;
+  }
 
   $('saved').hidden = !(deck.status === 'repaired' && deck.output);
   if (deck.output) {
@@ -366,13 +413,19 @@ function renderMedia(deck) {
   let html = '<div class="row" style="justify-content:flex-end"><button class="btn" data-media="csv">Export CSV</button><button class="btn" data-media="xlsx">Export Excel</button></div>';
   html += '<h3 class="section-title">Video and audio</h3>';
   html += inv.length ? `<div class="wrap"><table><thead><tr>${cols.map(([c]) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${
-    inv.map((r) => `<tr>${cols.map(([, k]) => `<td>${esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="note">${esc(data.totals)}</p>`
+    inv.map((r) => `<tr data-row-slide="${r.slide}">${cols.map(([, k]) => `<td>${esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="note">${esc(data.totals)}</p>`
     : '<p class="note">No video or audio in this deck.</p>';
   html += '<h3 class="section-title">To download <span class="note">fetch these and embed them before the show</span></h3>';
   html += dls.length ? `<div class="wrap"><table><thead><tr><th>Slide</th><th>Slide name</th><th>Site</th><th>Found in</th><th>Link</th></tr></thead><tbody>${
-    dls.map((r) => `<tr><td>${r.slide}</td><td>${esc(r.slide_name)}</td><td>${esc(r.site)}</td><td>${esc(r.found_in)}</td><td><a data-url="${esc(r.url)}" style="color:var(--accent);cursor:pointer">${esc(r.url)}</a></td></tr>`).join('')}</tbody></table></div>`
+    dls.map((r) => `<tr data-row-slide="${r.slide}"><td>${r.slide}</td><td>${esc(r.slide_name)}</td><td>${esc(r.site)}</td><td>${esc(r.found_in)}</td><td><a data-url="${esc(r.url)}" style="color:var(--accent);cursor:pointer">${esc(r.url)}</a></td></tr>`).join('')}</tbody></table></div>`
     : '<p class="note">No video or media links found.</p>';
   el.innerHTML = html;
+  if (S.mediaSlide) {
+    const rows = el.querySelectorAll(`tr[data-row-slide="${S.mediaSlide}"]`);
+    rows.forEach((r) => r.classList.add('hl'));
+    requestAnimationFrame(() => rows[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    S.mediaSlide = null;
+  }
 }
 
 function renderOptions(deck) {
@@ -561,6 +614,8 @@ function wireStatic() {
     const pp = t.closest('[data-ppt]'); if (pp) { openInPowerPoint(Number(pp.dataset.ppt)); return; }
     const jp = t.closest('[data-jump]'); if (jp) { jumpToSlide(Number(jp.dataset.jump)); return; }
     const sl = t.closest('#alert [data-slide]'); if (sl) { jumpToSlide(Number(sl.dataset.slide)); return; }
+    const ms = t.closest('#media-banner [data-slide]'); if (ms) { S.mediaSlide = Number(ms.dataset.slide); setTab('media'); return; }
+    if (t.closest('[data-goto-media]')) { setTab('media'); return; }
     const fl = t.closest('[data-filter]'); if (fl) { S.filter = fl.dataset.filter; render(); return; }
     const md = t.closest('[data-media]'); if (md) { exportMedia(md.dataset.media); return; }
     const url = t.closest('[data-url]'); if (url) { api.openExternal(url.dataset.url); return; }

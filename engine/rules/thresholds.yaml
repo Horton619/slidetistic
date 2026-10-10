@@ -22,5 +22,6 @@ safe_zone_pct: 5                # David 2026-10-10: text stays inside a 5% borde
 fit_min_line_spacing_pct: 85    # fit fixes never tighten line spacing below this share of the original
 fit_max_font_shrink_pct: 15     # last resort: font may shrink at most this much (David 2026-10-10: raised from 10)
 orphan_max_words: 1             # a paragraph's last line with this many words or fewer is an orphan
+orphan_min_paragraph_words: 6   # shorter paragraphs (titles, labels: "Board of / Directors") are never orphans
 overlap_min_pt: 2               # L010/L011: overlaps thinner than this (in points) are ignored
 fit_max_rounds: 6               # repair re-renders and re-checks layout at most this many times

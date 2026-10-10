@@ -12,12 +12,13 @@ class OrphanWord(Check):
     requires = ["layout"]
     sources = ["any"]
     runs_after = ["L001", "L010"]
-    thresholds = ["orphan_max_words"] + ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
+    thresholds = ["orphan_max_words", "orphan_min_paragraph_words"] + ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
 
     def detect(self, deck, ctx):
         if ctx.layout is None:
             return []
         limit = self.threshold(ctx, "orphan_max_words")
+        shortest = self.threshold(ctx, "orphan_min_paragraph_words")
         names = {(sv.slide_number, sv.shape_id): sv.name for sv in deck.iter_shapes()}
         findings = []
         for n in range(1, len(deck.slides) + 1):
@@ -33,6 +34,11 @@ class OrphanWord(Check):
                         continue
                     if len(lines) >= 2 and lines[-2].words and ("/" in lines[-2].words[-1] or lines[-2].words[-1].endswith("-")):
                         continue    # tail of a web address/DOI broken across lines (PAT 29: "01508-3")
+                    # David 2026-10-10 (CLARB 11): "Board of / Directors" and "… Council / Chair" are
+                    # designed breaks in short titles and labels, not orphans.
+                    para_words = sum(1 for l in lines for w in l.words if any(ch.isalnum() for ch in w))
+                    if para_words < shortest:
+                        continue
                     if len(lines) >= 2 and 0 < len(words) <= limit:
                         findings.append(Finding(self.id, Status.YELLOW,
                             f"'{' '.join(words)}' sits alone on the last line of a paragraph.",

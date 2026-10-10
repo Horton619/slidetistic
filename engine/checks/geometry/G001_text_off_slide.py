@@ -1,4 +1,5 @@
 from engine.core import EMU_PER_INCH, Check, Finding, FixRefused, Status, inches
+from engine.core.layout.pdf import drawn_text
 from engine.core.text_geometry import alignments, anchored_edge_off, text_overhang, text_start_offset
 
 
@@ -6,7 +7,8 @@ class TextOffSlide(Check):
     id = "G001"
     title = "Text off the slide"
     group = "geometry"
-    description = "Text boxes crossing the left, right or top edge. Pictures are allowed off-slide and never flagged."
+    description = ("Text off the left, right or top edge. With PowerPoint available it judges the words as drawn, "
+                   "not the box. Pictures are allowed off-slide and never flagged.")
     default_fix = True
     sources = ["canva", "google", "any"]
     thresholds = ["slide_margin_in", "offslide_tolerance_in"]
@@ -26,9 +28,28 @@ class TextOffSlide(Check):
             if not edges:
                 continue
             over = max(-b.left, b.right - W, -b.top)
+            box = f"box x {inches(b.left)}–{inches(b.right)} in, y from {inches(b.top)} in on a {inches(W)} in slide"
+            drawn = drawn_text(ctx.layout, deck, sv, tol)
+            if drawn is not None and drawn.total:
+                # David 2026-10-10: box overhangs flagged far too often; only the words matter.
+                lost = [e for e in drawn.off_edges if e != "bottom"]
+                if not drawn.missing and not lost:
+                    continue
+                rule = (f"PowerPoint render: {drawn.drawn} of {drawn.total} words drawn"
+                        + (f", drawn text x {inches(drawn.bounds[0])}–{inches(drawn.bounds[2])} in" if drawn.bounds else "")
+                        + f"; {box}. Words outside the slide are left out of the render.")
+                status = Status.RED
+                msg = (f"{drawn.missing} of {drawn.total} words are off the {' or '.join(edges)} edge of the slide."
+                       if drawn.missing else f"Text is drawn past the {' and '.join(lost)} edge of the slide.")
+                findings.append(Finding(self.id, status, msg, slide=sv.slide_number, shape_id=sv.shape_id,
+                    shape_name=sv.name, subject="off-slide",
+                    evidence={"rule": rule, "edges": edges, "overhang_in": inches(over), "words_drawn": drawn.drawn,
+                              "words_total": drawn.total, "box_in": [inches(b.left), inches(b.top), inches(b.width),
+                              inches(b.height)], "in_group": sv.group_depth > 0}))
+                continue
             certain = anchored_edge_off(sv.shape, b, W, tol)
             algn = ",".join(sorted(alignments(sv.shape))) or "none"
-            rule = (f"box x {inches(b.left)}–{inches(b.right)} in, y from {inches(b.top)} in on a {inches(W)} in slide; "
+            rule = (f"{box}; "
                     f"alignment {algn}; text can start {inches(text_start_offset(sv.shape))} in inside the box's left "
                     f"edge (margin + indent). "
                     + ("Text is pinned to the off-slide edge, so the words are cut off." if certain else

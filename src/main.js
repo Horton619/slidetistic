@@ -206,7 +206,10 @@ ipcMain.handle('engine:scan', (_e, deckId, file, opts = {}) => {
   const dir = reviewDir(deckId);
   fs.rmSync(dir, { recursive: true, force: true });
   const id = `j${++jobCounter}`;
-  enqueue({ id, deckId, kind: 'scan', args: ['scan', file, ...commonArgs(opts), '--review-dir', dir, '--no-layout'] });
+  // With PowerPoint (Mac), judge off-slide text by the words actually drawn (~4 s more per deck);
+  // without it the engine falls back to box geometry on its own.
+  const layout = settings.quickRepair ? '--no-layout' : '--layout';
+  enqueue({ id, deckId, kind: 'scan', args: ['scan', file, ...commonArgs(opts), '--review-dir', dir, layout] });
   return { jobId: id, reviewDir: dir };
 });
 

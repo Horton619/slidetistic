@@ -201,3 +201,22 @@ tr.jump { cursor: pointer; } tr.jump:hover td { background: var(--surface); }
 
 .update-progress { height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
 .update-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+/* media signal: queue chip + results banner (blue = all embedded, amber = prep needed, red = won't play offline) */
+.spk { width: 13px; height: 13px; vertical-align: -2px; flex: none; }
+.chip.media { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
+.chip.media.b { color: var(--blue); border-color: var(--blue); }
+.chip.media.y { color: var(--amber); border-color: var(--amber); }
+.chip.media.r { color: var(--red); border-color: var(--red); }
+.media-banner { display: flex; align-items: flex-start; gap: 12px; border-radius: var(--radius); padding: 10px 12px; border: 1px solid; }
+.media-banner[hidden] { display: none; }
+.media-banner > .spk { width: 26px; height: 26px; margin-top: 2px; }
+.media-banner .mb-body { flex: 1; min-width: 0; }
+.media-banner b { display: block; margin-bottom: 2px; }
+.media-banner .mb-issue { font-weight: 600; } .media-banner .mb-issue.r { color: var(--red); } .media-banner .mb-issue.y { color: var(--amber); }
+.media-banner .mb-inv { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.media-banner a { color: inherit; text-decoration: underline; cursor: pointer; }
+.media-banner.b { background: rgba(91, 155, 255, .10); border-color: var(--blue); } .media-banner.b > .spk, .media-banner.b b { color: var(--blue); }
+.media-banner.y { background: rgba(255, 181, 71, .10); border-color: var(--amber); } .media-banner.y > .spk, .media-banner.y b { color: var(--amber); }
+.media-banner.r { background: rgba(255, 90, 95, .12); border-color: var(--red); } .media-banner.r > .spk, .media-banner.r b { color: var(--red); }
+tr.hl td { background: var(--accent-dim); }

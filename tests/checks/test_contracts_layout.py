@@ -40,10 +40,18 @@ def test_l009_single_line_paragraph_is_never_an_orphan(tmp_path):
     assert detect("L009", deck, FakeLayout({1: {sid: st}})) == []
 
 
-def test_l009_flags_lonely_last_word_but_not_a_broken_doi(tmp_path):
-    deck = Deck(make_deck(tmp_path, text_box("a b c d whole. https://doi.org/10.1007/s00737-024- 01508-3")))
+def test_l009_short_titles_and_labels_are_not_orphans(tmp_path):
+    # CLARB 11: "Board of / Directors", "Leadership Advisory Council / Chair" are designed breaks.
+    deck = Deck(make_deck(tmp_path, text_box("Leadership Advisory Council Chair")))
     sid = deck.iter_shapes()[0].shape_id
-    st = ShapeText(sid, [line(["a", "b", "c", "d"], 200, 200), line(["whole."], 200, 230),
+    st = ShapeText(sid, [line(["Leadership", "Advisory", "Council"], 200, 200), line(["Chair"], 200, 230)], [0, 0])
+    assert detect("L009", deck, FakeLayout({1: {sid: st}})) == []
+
+
+def test_l009_flags_lonely_last_word_but_not_a_broken_doi(tmp_path):
+    deck = Deck(make_deck(tmp_path, text_box("a b c d e whole. https://doi.org/10.1007/s00737-024- 01508-3")))
+    sid = deck.iter_shapes()[0].shape_id
+    st = ShapeText(sid, [line(["a", "b", "c", "d", "e"], 200, 200), line(["whole."], 200, 230),
                          line(["https://doi.org/10.1007/s00737-024-"], 200, 300), line(["01508-3"], 200, 330)],
                    [0, 0, 1, 1])
     found = detect("L009", deck, FakeLayout({1: {sid: st}}))

@@ -92,7 +92,7 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
             changes = per_shape.get((slide, sid), [])
             if changes:
                 cid = changes[0].check_id
-                label = "; ".join(f"{c.check_id} {c.prop}: {c.before} → {c.after}" for c in changes)
+                label = _change_label(changes)
                 rule = next((f.evidence.get("rule", "") for f in fixed.values()
                              if f.slide == slide and f.shape_id == sid), "")
             else:   # touched by a deck-wide fix (font renames, embedded list)
@@ -164,3 +164,28 @@ def _same_picture(a: bytes, b: bytes, noise: int = 40) -> bool:
     if ia.size != ib.size:
         return False
     return ImageChops.difference(ia, ib).point(lambda v: 255 if v > noise else 0).getbbox() is None
+
+
+GEOMETRY = {"left": "position", "top": "position", "width": "width", "height": "height"}
+
+
+def _change_label(changes) -> str:
+    """One readable line per property, first value → last value (a fix nudged in rounds would otherwise
+    list every step, in EMU: CLARB 11 showed seven 'L009 width: 2948755 → 2919267' entries)."""
+    from engine.core import EMU_PER_INCH
+    first, last = {}, {}
+    for c in changes:
+        key = (c.check_id, c.prop)
+        first.setdefault(key, c.before)
+        last[key] = c.after
+    out = []
+    for (cid, prop), before in first.items():
+        after = last[(cid, prop)]
+        if prop in GEOMETRY and isinstance(before, int) and isinstance(after, int):
+            name = {"left": "moved right" if after > before else "moved left",
+                    "top": "moved down" if after > before else "moved up"}.get(prop, prop)
+            out.append(f"{cid} {name}: {before / EMU_PER_INCH:.2f} → {after / EMU_PER_INCH:.2f} in")
+        else:
+            out.append(f"{cid} {prop}: {before} → {after}")
+    return "; ".join(out)
+

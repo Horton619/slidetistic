@@ -4,6 +4,7 @@
 (function () {
   if (window.slidetistic || !location.protocol.startsWith('http')) return;
   const ROOT = '/corpus/reviews';
+  const BUNDLE = new URLSearchParams(location.search).get('review') || 'pat';   // a folder under corpus/reviews
   let settings = { outputFolder: '', suffix: ' - mended', safeZonePct: 5, quickRepair: false, crewFonts: '',
     skin: new URLSearchParams(location.search).get('skin') || 'pro', showWhy: true, watchFolder: '', presets: {}, lastTab: 'review' };
   const listeners = [];
@@ -26,7 +27,7 @@
     repair: async (id) => { run(id, 'repair'); return { output: '/Users/demo/Downloads/03 - PAT MBD Presentation - mended.pptx' }; },
     undoSlide: async (id, _m, slide) => { setTimeout(() => emit({ deckId: id, kind: 'undo', type: 'undone', slide }), 600); return {}; },
     cancel: async () => {},
-    loadReview: async () => ({ dir: `${location.origin}${ROOT}/pat`, data: await (await fetch(`${ROOT}/pat/review.json`)).json() }),
+    loadReview: async () => ({ dir: `${location.origin}${ROOT}/${BUNDLE}`, data: await (await fetch(`${ROOT}/${BUNDLE}/review.json`)).json() }),
     onEngineEvent: (cb) => { listeners.push(cb); return () => {}; },
     exportReport: async () => ({ path: '/Users/demo/Downloads/report.html' }), exportMedia: async () => ({ path: '/Users/demo/Downloads/media.xlsx' }),
     showInFolder: async () => {}, openPath: async () => {}, openExternal: async () => {}, openAtSlide: async () => ({ ok: true }),

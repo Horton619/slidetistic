@@ -188,3 +188,34 @@ class PdfLayout:
 
     def measure(self, slide_number: int, shape_id: int) -> ShapeText | None:
         return self.slide(slide_number).get(shape_id)
+
+
+@dataclass
+class Drawn:
+    """What PowerPoint actually drew for one text box, against the slide edges."""
+    total: int                      # words in the box's text
+    drawn: int                      # words found in the render
+    bounds: tuple[float, float, float, float] | None
+    off_edges: list[str]            # slide edges the drawn text itself crosses
+
+    @property
+    def missing(self) -> int:
+        return self.total - self.drawn
+
+
+def drawn_text(layout, deck, sv, tol: float) -> Drawn | None:
+    """PowerPoint's PDF leaves out words that fall outside the slide (broken deck slides 18 and 20:
+    0/11 and 9/15 words), so "all drawn words are on the slide" only proves anything when every word
+    was drawn. None when there's no render to ask (no layout, hidden slide)."""
+    from ..content import is_hidden, shape_text
+    if layout is None or is_hidden(deck.slides[sv.slide_number - 1]):
+        return None
+    total = len(_tokens(shape_text(sv.shape)))
+    st = layout.measure(sv.slide_number, sv.shape_id)
+    drawn = sum(len(l.tokens) for l in st.lines) if st else 0
+    b = st.bounds if st else None
+    edges = []
+    if b:
+        W, H = deck.slide_width, deck.slide_height
+        edges = [e for e, over in (("left", -b[0]), ("top", -b[1]), ("right", b[2] - W), ("bottom", b[3] - H)) if over > tol]
+    return Drawn(total, min(drawn, total), b, edges)

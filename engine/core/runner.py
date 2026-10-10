@@ -157,6 +157,17 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                      if b > a]
             if worse:
                 _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, ", ".join(worse))
+            elif not (_fit_problems(deck, fitters, prefit, ctx, n) - _fit_problems(deck, fitters, final, ctx, n)):
+                # David 2026-10-10 (CLARB 11): six width nudges, orphan still there. A change that fixed
+                # nothing isn't worth a review box; put the slide back without a word.
+                _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None)
+
+
+def _fit_problems(deck, fitters, layout, ctx, n) -> set:
+    """The layout problems on slide n according to this render: {(check id, shape id, subject)}."""
+    rctx = replace(ctx, layout=layout)
+    return {(f.check_id, f.shape_id, f.subject) for cls in fitters for f in cls().detect(deck, rctx)
+            if f.slide == n and not f.informational and f.status in PROBLEM}
 
 
 @dataclass
@@ -199,7 +210,8 @@ def _health(deck, layout, n, ctx) -> _Health:
 
 
 def _revert_slide(deck, n, snapshot, edits, fit_ids, outcome, reason):
-    """Put slide n back the way it was before the layout fixes, and record why."""
+    """Put slide n back the way it was before the layout fixes, and record why. reason None: the fixes
+    simply didn't work, so the slide is restored quietly (no review entry)."""
     from copy import deepcopy
     slide = deck.slides[n - 1]
     el = slide._element
@@ -210,10 +222,13 @@ def _revert_slide(deck, n, snapshot, edits, fit_ids, outcome, reason):
     partname = str(slide.part.partname)
     edits.changes[:] = [c for c in edits.changes
                         if not (c.check_id in fit_ids and (c.slide == n or c.part == partname))]
-    edits.changes.append(Change("SAFETY", n, None, None, "layout fixes undone", reason, "slide kept as it was"))
+    if reason:
+        edits.changes.append(Change("SAFETY", n, None, None, "layout fixes undone", reason, "slide kept as it was"))
+    why = (f"undone by the final safety check: the fixes made {reason} worse" if reason
+           else "PowerPoint didn't re-wrap the text as predicted, so the slide was left as it was")
     for key, (kind, _) in list(outcome.items()):
         if key[0] in fit_ids and key[1] == n:
-            outcome[key] = ("refused", f"undone by the final safety check: the fixes made {reason} worse")
+            outcome[key] = ("refused", why)
 
 
 def cleanup():

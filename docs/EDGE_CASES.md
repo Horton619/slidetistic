@@ -4,6 +4,10 @@ One entry per "oh by the way". Newest first.
 
 | Date | What was seen | Source | Check | Fixture | Status |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-10 | Off-slide warnings on boxes whose words are all visible; PowerPoint's PDF drops words outside the slide (slides 18, 20: 0/11, 9/15 drawn) | broken deck + David testing | G001, G002 | `test_G001_G002_drawn_text.py` | Judged by drawn words when PowerPoint renders; box rule only without it |
+| 2026-10-10 | Orphan fix nudged a box 6× (−1% each), PowerPoint never re-wrapped, changes kept and shown | CLARB 11 | runner safety pass | `_fit_problems` | Slides whose layout fixes resolved nothing are restored quietly |
+| 2026-10-10 | "Board of / Directors", "… Council / Chair" flagged as orphans | CLARB 11 | L009 | `test_l009_short_titles_and_labels_are_not_orphans` | `orphan_min_paragraph_words: 6` |
+| 2026-10-10 | Review tooltip listed every nudge in EMU ("width: 2948755 → 2919267" ×7) | CLARB 11 | visual | `_change_label` | First → last, in inches |
 | 2026-10-10 | "Rewind after Playing" not shown in the media list (broken deck slide 05); saved as `fill="remove"` on the media node | PowerPoint Mac | M002 | `mac_rewind.xml`, `test_m002_rewind_after_playing` | Fixed |
 | 2026-10-10 | Box-edge clamp moved an indented bullet block 1.8 in under an illustration (PAT 18) | PAT | fit.grow / plan_fit | `test_plan_never_slides_text_onto_a_picture` | Text-based checks; no box clamp |
 | 2026-10-10 | Narrowing a tall block added lines, last line off the slide (PAT 17) | PAT | L008 | `test_plan_never_predicts_text_off_the_slide` | Predict re-wrap; slide edge absolute |
