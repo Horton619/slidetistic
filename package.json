@@ -1,0 +1,100 @@
+{
+  "name": "slidetistic",
+  "version": "0.4.0",
+  "description": "Audits and repairs Canva / Google Slides / Keynote decks for PowerPoint — Visual Entropy Productions",
+  "main": "src/main.js",
+  "author": "Visual Entropy Productions",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:engine": "venv/bin/pyinstaller --clean --noconfirm --distpath backend/dist --workpath backend/build backend/slidetistic_engine.spec"
+  },
+  "build": {
+    "appId": "com.visualentropy.slidetistic",
+    "productName": "SlideTistic",
+    "copyright": "Copyright © 2026 Visual Entropy Productions",
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icons/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "extraResources": [
+        {
+          "from": "backend/dist/slidetistic_engine",
+          "to": "backend/slidetistic_engine"
+        },
+        {
+          "from": "vendor/mac",
+          "to": "tools"
+        }
+      ],
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "SlideTistic asks PowerPoint to render your slides, so the review shows them exactly as PowerPoint draws them."
+      }
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-arm64.${ext}"
+    },
+    "win": {
+      "icon": "assets/icons/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "backend/dist/slidetistic_engine",
+          "to": "backend/slidetistic_engine"
+        },
+        {
+          "from": "vendor/win",
+          "to": "tools"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Horton619",
+      "repo": "slidetistic"
+    }
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  }
+}

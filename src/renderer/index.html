@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>SlideTistic</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-skin="pro">
+  <header class="top">
+    <img class="lockup" src="../../assets/brand/logo-lockup-dark.svg" alt="SlideTistic">
+    <span class="tagline" id="tagline"></span>
+    <span class="grow"></span>
+    <span class="hint">⌘O add · ⌘R repair · ⇧⌘R repair all · <kbd>?</kbd> shortcuts</span>
+    <button class="btn" id="btn-slidefluid" title="Open SlideFluid">SlideFluid ↗</button>
+    <button class="btn" id="btn-settings" title="Settings (⌘,)">Settings</button>
+  </header>
+
+  <div class="update-banner" id="update-banner" hidden>
+    <span id="update-text"></span><button class="btn p" id="update-restart">Restart now</button><button class="icon" id="update-dismiss" aria-label="Dismiss">✕</button>
+  </div>
+
+  <div class="layout">
+    <aside class="side">
+      <div class="side-head"><span class="label">Queue</span><span class="count" id="queue-count"></span></div>
+      <div class="queue" id="queue"></div>
+      <div class="side-foot">
+        <button class="btn" id="btn-add">+ Add decks or a folder</button>
+        <button class="btn p" id="btn-repair-all">Repair all</button>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <section class="empty" id="empty">
+        <div class="dropzone" id="dropzone">
+          <div class="train-wrap"><img src="../../assets/brand/icon-engine.svg" class="engine" alt=""></div>
+          <h1>Drop a deck to check it</h1>
+          <p>…or a whole folder. Canva, Google Slides and Keynote exports welcome.</p>
+          <button class="btn p" id="btn-browse">Browse…</button>
+        </div>
+      </section>
+
+      <section class="results" id="results" hidden>
+        <div class="res-head">
+          <div class="res-title"><h2 id="deck-name"></h2><div class="chips" id="deck-chips"></div></div>
+          <div class="res-actions">
+            <button class="btn" id="btn-finder">Show in Finder</button>
+            <button class="btn" id="btn-export">Export report</button>
+            <button class="btn p" id="btn-repair">Repair</button>
+          </div>
+        </div>
+        <div class="busy" id="busy" hidden>
+          <div class="busy-train"><img src="../../assets/brand/icon-engine-small.svg" alt=""></div>
+          <div class="busy-text"><b id="busy-title"></b><span id="busy-detail"></span><div class="busy-bar"><i id="busy-bar"></i></div></div>
+          <button class="btn" id="btn-cancel">Cancel</button>
+        </div>
+        <div class="source" id="source" hidden></div>
+        <div class="alert" id="alert" hidden></div>
+        <div class="saved" id="saved" hidden></div>
+        <nav class="tabs" id="tabs">
+          <button data-tab="review">Review</button>
+          <button data-tab="findings">Findings</button>
+          <button data-tab="media">Media</button>
+          <button data-tab="options">Options</button>
+        </nav>
+        <div class="tab" id="tab-review"></div>
+        <div class="tab" id="tab-findings" hidden></div>
+        <div class="tab" id="tab-media" hidden></div>
+        <div class="tab" id="tab-options" hidden></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Full-screen slide viewer -->
+  <div class="viewer" id="viewer" hidden>
+    <div class="viewer-top">
+      <b id="viewer-title"></b><span class="viewer-mode" id="viewer-mode"></span><span class="grow"></span>
+      <button class="btn" id="v-mode">Side by side / Flip <kbd>B</kbd></button>
+      <button class="btn" id="v-undo">↶ Undo slide <kbd>U</kbd></button>
+      <button class="btn" id="v-ppt">PowerPoint ↗ <kbd>P</kbd></button>
+      <button class="icon" id="v-close" aria-label="Close">✕</button>
+    </div>
+    <div class="viewer-stage" id="viewer-stage"></div>
+    <div class="viewer-hint">← → slides · <kbd>B</kbd> / hold <kbd>Space</kbd> flip before↔after · <kbd>U</kbd> undo this slide · <kbd>P</kbd> open in PowerPoint · <kbd>Esc</kbd> close</div>
+  </div>
+
+  <!-- Settings -->
+  <div class="modal-back" id="settings" hidden>
+    <div class="modal">
+      <div class="modal-head"><h2>Settings</h2><button class="icon" data-close aria-label="Close">✕</button></div>
+      <nav class="tabs small" id="set-tabs">
+        <button data-set="general" class="on">General</button><button data-set="fonts">Fonts</button>
+        <button data-set="look">Appearance</button><button data-set="diag">Diagnostics</button>
+      </nav>
+      <div class="set" id="set-general">
+        <label>Save repaired decks to
+          <div class="row"><input id="s-output" placeholder="Next to the original" readonly><button class="btn" id="s-output-pick">Choose…</button><button class="btn" id="s-output-clear">Next to original</button></div></label>
+        <label>File name ending <input id="s-suffix"></label>
+        <label>Safe border on every edge (%) <input id="s-safe" type="number" min="0" max="15" step="1"></label>
+        <label class="check"><input type="checkbox" id="s-quick"> Quick repair (skip layout fixes and the visual review; about 5 s instead of ~80 s)</label>
+        <label>Watch folder <span class="note">New decks dropped here are scanned automatically.</span>
+          <div class="row"><input id="s-watch" placeholder="Off" readonly><button class="btn" id="s-watch-pick">Choose…</button><button class="btn" id="s-watch-clear">Off</button></div></label>
+      </div>
+      <div class="set" id="set-fonts" hidden>
+        <label>Fonts installed on the show machines <span class="note">One per line. These won't be reported as missing.</span>
+          <textarea id="s-crew" rows="10" placeholder="Montserrat&#10;Gotham"></textarea></label>
+      </div>
+      <div class="set" id="set-look" hidden>
+        <div class="skins">
+          <button class="skin" data-skin="pro"><span class="sw pro"></span><b>Professional</b><small>Navy + signal violet</small></button>
+          <button class="skin" data-skin="fun"><span class="sw fun"></span><b>Fun</b><small>Graphic design is my passion</small></button>
+        </div>
+      </div>
+      <div class="set" id="set-diag" hidden>
+        <label class="check"><input type="checkbox" id="s-why"> Show the rule behind every call (testing mode)</label>
+        <div class="diag" id="diag"></div>
+        <div class="row"><button class="btn" id="d-update">Check for updates</button><span class="note" id="d-update-status"></span></div>
+        <div class="update-progress" id="d-update-bar" hidden><i></i></div>
+        <pre class="log" id="d-log"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortcuts -->
+  <div class="modal-back" id="shortcuts" hidden>
+    <div class="modal narrow">
+      <div class="modal-head"><h2>Shortcuts</h2><button class="icon" data-close aria-label="Close">✕</button></div>
+      <table class="keys">
+        <tr><td><kbd>⌘O</kbd></td><td>Add decks or a folder</td></tr>
+        <tr><td><kbd>⌘R</kbd></td><td>Repair the selected deck</td></tr>
+        <tr><td><kbd>⇧⌘R</kbd></td><td>Repair every deck in the queue</td></tr>
+        <tr><td><kbd>⌘E</kbd></td><td>Export the report</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Previous / next deck</td></tr>
+        <tr><td><kbd>⌫</kbd></td><td>Remove the selected deck from the queue (the file isn't touched)</td></tr>
+        <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Review · Findings · Media · Options</td></tr>
+        <tr><td><kbd>F</kbd> / double-click a slide</td><td>Full-screen review</td></tr>
+        <tr><td><kbd>B</kbd> / hold <kbd>Space</kbd></td><td>Flip before ↔ after (full screen)</td></tr>
+        <tr><td><kbd>U</kbd></td><td>Undo the slide's layout changes (full screen)</td></tr>
+        <tr><td><kbd>P</kbd></td><td>Open in PowerPoint at that slide (full screen)</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close full screen / dialogs</td></tr>
+        <tr><td><kbd>?</kbd></td><td>This list</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <footer class="foot"><span>© <span id="year"></span> Visual Entropy Productions</span><a href="#" id="vep">veproductions.net</a></footer>
+  <script src="dev-mock.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

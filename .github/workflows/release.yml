@@ -1,0 +1,137 @@
+name: Release
+
+# Push a tag like v0.4.0 (matching package.json "version") to build, sign, notarize and publish.
+on:
+  push:
+    tags: ['v*']
+
+# electron-builder publishes to GitHub Releases; new repos default GITHUB_TOKEN to read-only.
+permissions:
+  contents: write
+
+env:
+  FFMPEG_TAG: n7.1.2
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # macOS arm64: DMG (fresh installs) + ZIP (auto-update), Developer ID signed + notarized.
+  # ---------------------------------------------------------------------------------------------
+  release-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches package.json version
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+
+      - name: Python dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Bundle Poppler (pdftotext, pdftoppm)
+        run: |
+          brew install poppler dylibbundler
+          scripts/vendor_mac_tools.sh
+
+      - name: Cache ffprobe
+        id: ffprobe-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/mac/ffprobe
+          key: ffprobe-mac-${{ env.FFMPEG_TAG }}-${{ hashFiles('scripts/build_ffprobe.sh') }}
+      - name: Build ffprobe (minimal, LGPL)
+        if: steps.ffprobe-cache.outputs.cache-hit != 'true'
+        run: scripts/build_ffprobe.sh
+
+      - name: Tests
+        env: { SLIDETISTIC_TOOLS: vendor/mac }
+        run: python -m pytest -q
+
+      - name: Build engine (PyInstaller)
+        run: pyinstaller --clean --noconfirm --distpath backend/dist --workpath backend/build backend/slidetistic_engine.spec
+
+      # Catches the classic PyInstaller trap: checks are loaded dynamically, so a missing hidden
+      # import builds fine and only fails when the app runs.
+      - name: Smoke-test the engine
+        run: |
+          backend/dist/slidetistic_engine/slidetistic_engine list-checks --json \
+            | python -c "import json,sys; n=len(json.load(sys.stdin)); print(n, 'checks'); sys.exit(n < 30)"
+
+      - run: npm ci
+
+      - name: Build, sign, notarize, publish
+        env:
+          GH_TOKEN:                    ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK:                    ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD:            ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID:                    ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID:               ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --publish always
+
+  # ---------------------------------------------------------------------------------------------
+  # Windows x64: NSIS installer, unsigned. Runs after mac so the draft release already exists.
+  # ---------------------------------------------------------------------------------------------
+  release-win:
+    runs-on: windows-latest
+    needs: release-mac
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+
+      - name: Python dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Cache ffprobe
+        id: ffprobe-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/win/ffprobe.exe
+          key: ffprobe-win-${{ env.FFMPEG_TAG }}-${{ hashFiles('scripts/build_ffprobe.sh') }}
+      - uses: msys2/setup-msys2@v2
+        if: steps.ffprobe-cache.outputs.cache-hit != 'true'
+        with:
+          msystem: MINGW64
+          install: git make diffutils mingw-w64-x86_64-gcc
+      - name: Build ffprobe (minimal, LGPL)
+        if: steps.ffprobe-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          bash scripts/build_ffprobe.sh
+          objdump -p vendor/win/ffprobe.exe | grep "DLL Name"
+
+      # No Windows test machine yet: run the suite here for information, without blocking the release.
+      - name: Tests (informational)
+        continue-on-error: true
+        env: { SLIDETISTIC_TOOLS: vendor/win }
+        run: python -m pytest -q
+
+      - name: Build engine (PyInstaller)
+        run: pyinstaller --clean --noconfirm --distpath backend/dist --workpath backend/build backend/slidetistic_engine.spec
+
+      - name: Smoke-test the engine
+        shell: bash
+        run: |
+          backend/dist/slidetistic_engine/slidetistic_engine.exe list-checks --json \
+            | python -c "import json,sys; n=len(json.load(sys.stdin)); print(n, 'checks'); sys.exit(n < 30)"
+
+      - run: npm ci
+
+      - name: Build and publish installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always
+
+      - name: Publish the release (out of draft, mark latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --draft=false --latest

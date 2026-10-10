@@ -15,6 +15,15 @@ def test_m002_inventory_reads_powerpoint_settings(tmp_path):
         ("click_sequence", True, True)
 
 
+def test_m002_rewind_after_playing(tmp_path):
+    # broken_mac.pptx slide 05: the only difference from click sequence is fill="remove" on the media node.
+    src = make_deck(tmp_path, slides=[[video()], [video()]], timing={1: "mac_rewind", 2: "mac_click_sequence"})
+    inv = {f.slide: f for f in run_scan(src, "M002").findings}
+    assert inv[1].evidence["rewind"] and "rewinds" in inv[1].message
+    assert inv[1].evidence["mode"] == "click_sequence"
+    assert not inv[2].evidence["rewind"]
+
+
 def test_m002_muted_video_called_out(tmp_path):
     src = make_deck(tmp_path, video(), timing="mac_automatic")   # this PowerPoint save has vol="0"
     [f] = run_scan(src, "M002").findings

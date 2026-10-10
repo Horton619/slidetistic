@@ -22,7 +22,7 @@ class MediaInventory(Check):
             parts = [_clock(p.get("duration_s")), MODE[m.mode].format(clicks=m.clicks)]
             if m.trim_start_ms or m.trim_end_ms:
                 parts.append("trimmed")
-            parts += [label for label, on in (("loops", m.loop), ("full screen", m.full_screen),
+            parts += [label for label, on in (("loops", m.loop), ("rewinds", m.rewind), ("full screen", m.full_screen),
                                               ("hidden when stopped", m.hidden_when_stopped)) if on]
             if m.muted or m.volume == 0:
                 parts.append("MUTED (volume 0)")
@@ -33,7 +33,7 @@ class MediaInventory(Check):
                 f"{m.kind.capitalize()}: " + " · ".join(x for x in parts if x),
                 slide=m.slide, shape_id=m.shape_id, shape_name=m.shape_name, subject=m.kind, informational=True,
                 evidence={"slide_name": names, "kind": m.kind, "file": m.target, "linked": m.linked,
-                          "mode": m.mode, "clicks": m.clicks, "loop": m.loop, "full_screen": m.full_screen,
+                          "mode": m.mode, "clicks": m.clicks, "loop": m.loop, "rewind": m.rewind, "full_screen": m.full_screen,
                           "hidden_when_stopped": m.hidden_when_stopped, "volume": 0 if m.muted else m.volume,
                           "trim_start_ms": m.trim_start_ms, "trim_end_ms": m.trim_end_ms, **p}))
         return findings

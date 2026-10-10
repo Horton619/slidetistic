@@ -122,8 +122,10 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
     return [visuals[k] for k in sorted(visuals)]
 
 
-def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer) -> None:
-    """Fill in before/after images. PowerPoint's PDF leaves out hidden slides, so map numbers to pages."""
+def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer, image_dir: Path | None = None) -> None:
+    """Fill in before/after images. PowerPoint's PDF leaves out hidden slides, so map numbers to pages.
+    With `image_dir`, images are written there as files (the app's review bundle) and the visuals hold
+    their file names; otherwise they're embedded as data: URIs (the stand-alone HTML report)."""
     if not visuals:
         return
     pages = {}
@@ -144,7 +146,12 @@ def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer) -
             pdf, page_of = pages[label]
             if v.slide in page_of:
                 raw[label] = renderer.page_image(pdf, page_of[v.slide])
-                setattr(v, attr, "data:image/jpeg;base64," + base64.b64encode(raw[label]).decode())
+                if image_dir:
+                    name = f"slide-{v.slide}-{label}.jpg"
+                    (image_dir / name).write_bytes(raw[label])
+                    setattr(v, attr, name)
+                else:
+                    setattr(v, attr, "data:image/jpeg;base64," + base64.b64encode(raw[label]).decode())
         if len(raw) == 2:
             v.looks_same = _same_picture(raw["before"], raw["after"])
 

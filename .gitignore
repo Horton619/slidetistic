@@ -21,3 +21,9 @@ corpus/
 
 # Machine-specific dev server config (absolute paths)
 .claude/launch.json
+
+# Bundled helper programs (Poppler, ffprobe): rebuilt by scripts/ for each release
+vendor/
+
+# Release secrets template (filled in locally, never committed)
+*.local.txt

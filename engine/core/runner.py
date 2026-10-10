@@ -26,6 +26,8 @@ class RunConfig:
     preset: str = "any"
     crew_fonts: set[str] = field(default_factory=set)
     layout: bool = False             # judge text as PowerPoint draws it (needs PowerPoint; slower)
+    prefit_path: Path | None = None  # repair saves the deck here just before layout fixes (for per-slide undo)
+    overrides: dict = field(default_factory=dict)   # threshold overrides from the app's Settings
 
     def check_on(self, c: type[Check]) -> bool:
         return c.id in self.checks if self.checks is not None else c.default_check
@@ -62,7 +64,7 @@ class Result:
 
 
 def make_context(config: RunConfig) -> Context:
-    return Context(thresholds=rules.load("thresholds"), preset=config.preset,
+    return Context(thresholds={**rules.load("thresholds"), **config.overrides}, preset=config.preset,
                    crew_fonts={f.casefold() for f in config.crew_fonts})
 
 
@@ -310,6 +312,8 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
                                       slide=f.slide, shape_id=f.shape_id, shape_name=f.shape_name,
                                       subject=f.subject, evidence={"exception": type(e).__name__}))
 
+    if config.prefit_path:
+        deck.save(config.prefit_path)
     if fitters:
         _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit)
 

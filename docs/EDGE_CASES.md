@@ -4,6 +4,7 @@ One entry per "oh by the way". Newest first.
 
 | Date | What was seen | Source | Check | Fixture | Status |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-10 | "Rewind after Playing" not shown in the media list (broken deck slide 05); saved as `fill="remove"` on the media node | PowerPoint Mac | M002 | `mac_rewind.xml`, `test_m002_rewind_after_playing` | Fixed |
 | 2026-10-10 | Box-edge clamp moved an indented bullet block 1.8 in under an illustration (PAT 18) | PAT | fit.grow / plan_fit | `test_plan_never_slides_text_onto_a_picture` | Text-based checks; no box clamp |
 | 2026-10-10 | Narrowing a tall block added lines, last line off the slide (PAT 17) | PAT | L008 | `test_plan_never_predicts_text_off_the_slide` | Predict re-wrap; slide edge absolute |
 | 2026-10-10 | Canva images are image-filled freeforms, not pictures; a push slid bullets under a chart (PAT 5) | Canva | fit.is_graphic | `test_image_filled_shapes_count_as_graphics_but_plain_panels_dont` | Fixed |

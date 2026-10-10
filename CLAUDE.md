@@ -86,6 +86,24 @@ A run takes ~3 min for ~66 decks. It always fails on a crashed check, a repair t
 or a second repair that still changes something. The "corpus diff" section at the end is what to report
 to David; only run `--update-snapshots` after he accepts it.
 
+## Packaging (phase 3)
+
+```
+scripts/vendor_mac_tools.sh      # Poppler pdftotext + pdftoppm → vendor/mac (dylibbundler, no Homebrew paths)
+scripts/build_ffprobe.sh         # minimal LGPL ffprobe (demuxers only, ~4 MB) → vendor/<mac|win>
+npm run build:engine             # PyInstaller one-folder engine → backend/dist/slidetistic_engine/
+npx electron-builder --mac --dir -c.mac.identity=- -c.mac.notarize=false   # local ad-hoc test build
+```
+
+- The engine finds helper programs via `engine/core/tools.py`: `SLIDETISTIC_<NAME>`, then `SLIDETISTIC_TOOLS`
+  (main.js sets it to `resources/tools` packaged, `vendor/<plat>` in dev), then PATH.
+- The registry loads checks from `.py` files and rules from YAML, so the spec ships `engine/checks` and
+  `engine/rules` as data and `collect_submodules("engine")` as hidden imports. A missing hidden import builds
+  fine and only fails at run time; CI's "Smoke-test the engine" step catches it.
+- `vendor/` is git-ignored; CI rebuilds it every release (`.github/workflows/release.yml`, tag `v*`).
+- The minimal ffprobe matched Homebrew's full ffprobe on all 333 corpus videos (2026-10-10). Don't ship
+  Homebrew's ffmpeg: it's a GPL build with 36 libraries.
+
 Test-only checks live in `tests/dummy_checks/` (X998 crashes on purpose, X999 fixes negative-x text).
 They prove the runner and contracts work; they are never shipped.
 

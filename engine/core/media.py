@@ -18,13 +18,14 @@ guessed. See CLAUDE.md "Never guess PowerPoint XML".
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from pptx.oxml.ns import qn
+
+from . import tools
 
 P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
 EFFECT_TYPES = ("clickEffect", "withEffect", "afterEffect")
@@ -51,6 +52,7 @@ class MediaItem:
     hidden_when_stopped: bool = False
     full_screen: bool = False
     loop: bool = False
+    rewind: bool = False              # back to the first frame when it ends
     trim_start_ms: float | None = None
     trim_end_ms: float | None = None
     probe: dict | None = field(default=None, repr=False)
@@ -114,6 +116,8 @@ def _read_timing(root, item: MediaItem):
         item.hidden_when_stopped = cm.get("showWhenStopped") == "0"
         ctn = cm.find(qn("p:cTn"))
         item.loop = ctn is not None and ctn.get("repeatCount") == "indefinite"
+        # Mac PowerPoint 2026-10-10: "Rewind after Playing" saves fill="remove" here (otherwise "hold").
+        item.rewind = ctn is not None and ctn.get("fill") == "remove"
 
     main = next((c for c in timing.iter(qn("p:cTn")) if c.get("nodeType") == "mainSeq"), None)
     plays = [c for c in timing.iter(qn("p:cTn"))
@@ -224,8 +228,7 @@ def _read_trim(nv_pr, item: MediaItem):
 # --- file facts via ffprobe ------------------------------------------------------------------
 
 def ffprobe_path() -> str | None:
-    import os
-    return os.environ.get("SLIDETISTIC_FFPROBE") or shutil.which("ffprobe")
+    return tools.find("ffprobe")
 
 
 def probe(item: MediaItem) -> dict | None:

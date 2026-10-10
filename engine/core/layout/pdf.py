@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import html
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .. import tools
 
 EMU_PER_PT = 12700
 WORD = re.compile(r"[\w']+", re.UNICODE)
@@ -164,7 +165,7 @@ class PdfLayout:
             return
         from ..content import is_hidden
         pdf = self.renderer.to_pdf(self.path or self.deck.path, "layout")
-        out = subprocess.run([shutil.which("pdftotext") or "pdftotext", "-bbox-layout", str(pdf), "-"],
+        out = subprocess.run([tools.find("pdftotext") or "pdftotext", "-bbox-layout", str(pdf), "-"],
                              capture_output=True, text=True, timeout=300, check=True).stdout
         pages = parse_bbox_html(out)
         self._pages, page = {}, 0

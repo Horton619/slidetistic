@@ -12,6 +12,8 @@ import sys
 import uuid
 from pathlib import Path
 
+from .core import tools
+
 CONTAINER_TMP = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/tmp/slidetistic"
 MAC_APP = Path("/Applications/Microsoft PowerPoint.app")
 
@@ -21,8 +23,7 @@ class RenderError(Exception):
 
 
 def pdftoppm_path() -> str | None:
-    import os
-    return os.environ.get("SLIDETISTIC_PDFTOPPM") or shutil.which("pdftoppm")
+    return tools.find("pdftoppm")
 
 
 class PowerPointRenderer:
@@ -34,8 +35,8 @@ class PowerPointRenderer:
             return False, "visual review needs PowerPoint for Mac (Windows support comes later)"
         if not MAC_APP.exists():
             return False, "PowerPoint isn't installed"
-        if not pdftoppm_path():
-            return False, "pdftoppm (Poppler) isn't installed"
+        if not pdftoppm_path() or not tools.find("pdftotext"):
+            return False, "Poppler (pdftoppm, pdftotext) isn't installed"
         return True, ""
 
     def __init__(self):
