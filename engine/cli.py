@@ -206,7 +206,7 @@ def _undo_slide(path: Path, args) -> int:
         finally:
             renderer.cleanup()
     if review_dir and (review_dir / "review.json").exists():
-        data = _json.loads((review_dir / "review.json").read_text())
+        data = _json.loads((review_dir / "review.json").read_text(encoding="utf-8"))
         for v in data.get("visuals", []):
             if v["slide"] == n:
                 v["after_boxes"], v["undone"] = [], True
@@ -214,7 +214,7 @@ def _undo_slide(path: Path, args) -> int:
                     v["after_png"] = image
         data["changes"] = [c for c in data.get("changes", []) if not (c.get("check_id", "").startswith("L") and c.get("slide") == n)]
         data.setdefault("undone_slides", []).append(n)
-        (review_dir / "review.json").write_text(_json.dumps(data, default=str))
+        (review_dir / "review.json").write_text(_json.dumps(data, default=str), encoding="utf-8")
     emit({"type": "undone", "slide": n, "after_png": image})
     if not args.json:
         print(f"Slide {n} restored to how it was before layout fixes. Saved: {path}")

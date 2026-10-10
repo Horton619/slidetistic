@@ -89,13 +89,13 @@ def test_corpus_deck(deck, tmp_path, request):
 
     if request.config.getoption("--update-snapshots"):
         SNAPSHOTS.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(now, indent=1))
+        path.write_text(json.dumps(now, indent=1), encoding="utf-8")
         return
     if not path.exists():
         CHANGED_DECKS.append(f"{rel}  (new: no snapshot yet)")
         pytest.fail("no snapshot yet: review the findings, then run with --update-snapshots")
 
-    before = json.loads(path.read_text())
+    before = json.loads(path.read_text(encoding="utf-8"))
     lines = _diff("scan", before["scan"], now["scan"]) + _diff(
         "after repair", (before["repair"] or {}).get("findings", []), (now["repair"] or {}).get("findings", []))
     if lines:

@@ -8,7 +8,9 @@ where things stand and what the PC is for. Delete or rewrite this file when it g
 - **v0.4.0 released** (tag `v0.4.0`, commit `13cd730`): first CI release of the desktop app.
   - Mac: signed + notarized DMG and ZIP built in CI. Not yet installed on a real machine.
   - Windows: unsigned NSIS installer, `SlideTistic-Setup-0.4.0.exe` on the Releases page. **Never run by a person.**
-  - Check the run if in doubt: `gh run list --repo Horton619/slidetistic --limit 3`
+  - CI green on both. The first run split its uploads across two v0.4.0 releases (fixed in the workflow);
+    the Windows files were copied into the published release by hand, so it now has all eight files.
+  - First Windows CI test run: 992/994; the 2 failures were tests reading UTF-8 files as cp1252 (fixed).
 - **Repo is public** (needed for electron-updater). Client decks never go in git: `corpus/` is ignored.
 - **Signing secrets** are set on the repo (all five). Nothing to do there.
 - **Windows scope today:** fonts, geometry, media, playback and content checks + fixes. **No layout fixes

@@ -54,7 +54,7 @@ def test_identical_renders_fold_and_different_ones_show(tmp_path):
     by = {v.slide: v for v in visuals}
     assert by[1].looks_same and by[1].tier == 4
     assert not by[3].looks_same and by[3].tier == 2
-    html = report.build(result, registry.discover(), tmp_path / "r.html", visuals=visuals).read_text()
+    html = report.build(result, registry.discover(), tmp_path / "r.html", visuals=visuals).read_text(encoding="utf-8")
     assert "4. Changed underneath, looks identical" in html and "slide 1<" in html
     assert "<h3>Slide 3</h3>" in html and "<h3>Slide 1</h3>" not in html
 
@@ -70,7 +70,7 @@ def test_tiers_order_broken_first_and_alert_banner(tmp_path):
                 evidence={"rule": "last line has 1 word", "box_emu": [0, 0, 914400, 457200]})])
     visuals = visual.plan(r, src, None)
     assert [(v.slide, v.tier) for v in visuals] == [(1, 3), (2, 1)]
-    html = report.build(r, registry.discover(), tmp_path / "r.html", visuals=visuals).read_text()
+    html = report.build(r, registry.discover(), tmp_path / "r.html", visuals=visuals).read_text(encoding="utf-8")
     assert html.index("1. Broken") < html.index("3. Needs a look")
     assert "Text runs off the slide on slide <a href='#slide-2'>2</a>" in html
     assert "Why: text drawn below the slide" in html and "box layout red" in html
@@ -90,7 +90,7 @@ def test_report_contains_summary_findings_media_and_checks(tmp_path):
     src = canva_deck(tmp_path, notes=["", "", "Play https://youtu.be/abc first"])
     checks = registry.discover()
     result = repair(src, checks, RunConfig(), out_path=tmp_path / "out.pptx")
-    html = report.build(result, checks, tmp_path / "r.html", visual_note="Visual review turned off.").read_text()
+    html = report.build(result, checks, tmp_path / "r.html", visual_note="Visual review turned off.").read_text(encoding="utf-8")
     for needle in ("fixed</div>", "to look at", "still broken", "Visual review turned off.", "To download",
                    "https://youtu.be/abc", "<td>F001</td>", "Visual Entropy Productions"):
         assert needle in html, needle
@@ -99,7 +99,7 @@ def test_report_contains_summary_findings_media_and_checks(tmp_path):
 def test_scan_report_says_nothing_changed(tmp_path):
     src = make_deck(tmp_path, text_box("Clean", font="Arial"))
     checks = registry.discover()
-    html = report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text()
+    html = report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text(encoding="utf-8")
     assert "Scan only, nothing changed" in html
 
 
@@ -113,11 +113,11 @@ def test_canva_shout_banner(tmp_path):
     from tests.fixtures.builders import CANVA
     src = make_deck(tmp_path, text_box("x", font="Calibri (MS) Bold"), size=CANVA)
     checks = registry.discover()
-    html = report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text()
+    html = report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text(encoding="utf-8")
     assert "CANVA DETECTED!" in html and "gRaPhIc dEsIgNeR" in html
 
 
 def test_no_shout_for_powerpoint_decks(tmp_path):
     src = make_deck(tmp_path, text_box("Hello", font="Arial"))
     checks = registry.discover()
-    assert "DETECTED!" not in report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text()
+    assert "DETECTED!" not in report.build(scan(src, checks, RunConfig()), checks, tmp_path / "r.html").read_text(encoding="utf-8")

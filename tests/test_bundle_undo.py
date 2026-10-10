@@ -11,7 +11,7 @@ def test_repair_writes_review_bundle_and_prefit(tmp_path):
     rd = tmp_path / "review"
     assert cli.main(["repair", str(src), "--out", str(tmp_path / "out.pptx"), "--review-dir", str(rd),
                      "--no-report", "--no-visual"]) == 0
-    data = json.loads((rd / "review.json").read_text())
+    data = json.loads((rd / "review.json").read_text(encoding="utf-8"))
     assert data["summary"]["green_fixed"] >= 2 and data["prefit"] and (rd / "prefit.pptx").exists()
     assert {"findings", "changes", "visuals", "inventory", "downloads", "checks", "kinds"} <= set(data)
 

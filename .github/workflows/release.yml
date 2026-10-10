@@ -24,6 +24,14 @@ jobs:
       - name: Tag matches package.json version
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
 
+      # electron-builder uploads the DMG and ZIP in parallel; with no release yet, each made its own
+      # draft (v0.4.0 ended up split across two). Create the one draft every upload goes into.
+      - name: Create the draft release
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --draft --title "${GITHUB_REF_NAME#v}" --notes ""
+
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - uses: actions/setup-node@v4
@@ -108,9 +116,7 @@ jobs:
           bash scripts/build_ffprobe.sh
           objdump -p vendor/win/ffprobe.exe | grep "DLL Name"
 
-      # No Windows test machine yet: run the suite here for information, without blocking the release.
-      - name: Tests (informational)
-        continue-on-error: true
+      - name: Tests
         env: { SLIDETISTIC_TOOLS: vendor/win }
         run: python -m pytest -q
 
