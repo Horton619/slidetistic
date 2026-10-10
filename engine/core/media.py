@@ -246,11 +246,12 @@ def _probe_blob(partname: str, size: int, blob: bytes) -> dict | None:
     key = (partname, size, hash(blob[:65536]))
     if key in _PROBE_CACHE:
         return _PROBE_CACHE[key]
-    with tempfile.NamedTemporaryFile(suffix=Path(partname).suffix) as f:
-        f.write(blob)
-        f.flush()
+    # Closed before ffprobe opens it: Windows won't let a second process open a file we still hold.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / ("media" + Path(partname).suffix)
+        path.write_bytes(blob)
         try:
-            out = subprocess.run([ffprobe_path(), "-v", "error", "-show_format", "-show_streams", "-of", "json", f.name],
+            out = subprocess.run([ffprobe_path(), "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)],
                                  capture_output=True, text=True, timeout=60)
             data = json.loads(out.stdout or "{}")
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
