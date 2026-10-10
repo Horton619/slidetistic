@@ -22,7 +22,9 @@ class OfficeFontEmbedded(Check):
             Finding(self.id, Status.YELLOW,
                     f"{fam} is embedded, but every show machine already has it from Office. "
                     f"Fix: remove the embedded copy so the real font is used.",
-                    subject=fam, evidence={"listed_as": [ef.typeface for ef in group]})
+                    subject=fam, evidence={"listed_as": [ef.typeface for ef in group],
+                                           "rule": f"listed name '{fam}' is in office_fonts.yaml and the file inside "
+                                                   f"is the same family (stand-ins like Arial-for-Helvetica are kept)"})
             for fam, group in sorted(by_family.items())
         ]
 

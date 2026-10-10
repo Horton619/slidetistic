@@ -5,6 +5,9 @@ fixable:
   - {suffix: Bold, bold: true}
   - {suffix: Italic, italic: true}
 
+# A word right before the suffix that makes it a different weight: "Extra Bold" ≠ Bold.
+modifiers: [Extra, Semi, Demi, Ultra, Extra-, Semi-]
+
 # flag_only: weights PowerPoint has no flag for. They may be real installed families
 # ("Montserrat SemiBold"), so F003 reports them and changes nothing. Matched case-insensitively.
 flag_only:
@@ -24,6 +27,10 @@ flag_only:
   - DemiBold
   - ExtraBold
   - Extra Bold
+  - Extra Bold Italic
+  - Semi Bold Italic
+  - Ultra Bold
+  - Demi Bold
   - Black
   - Heavy
   - Regular

@@ -20,5 +20,9 @@ class LowResolutionImage(Check):
                     f"Image is {pic.px_w} px wide but fills about {pic.shown_px} px of the screen "
                     f"({1 / pic.ratio:.0%} stretch). It may look soft; ask for a bigger original.",
                     slide=pic.sv.slide_number, shape_id=pic.sv.shape_id, shape_name=pic.sv.name, subject="low-res",
-                    evidence={"px": [pic.px_w, pic.px_h], "shown_px": pic.shown_px}))
+                    evidence={"px": [pic.px_w, pic.px_h], "shown_px": pic.shown_px,
+                              "rule": f"{pic.px_w} px (after crop) shown ≈{pic.shown_px} px on a "
+                                      f"{self.threshold(ctx, 'output_width_px')} px screen = {1 / pic.ratio:.1f}× stretch; "
+                                      f"flagged above {1 / self.threshold(ctx, 'low_res_ratio'):.1f}× when ≥"
+                                      f"{self.threshold(ctx, 'low_res_min_shown_px')} px wide"}))
         return findings

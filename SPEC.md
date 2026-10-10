@@ -41,7 +41,7 @@ Prototype scripts that did these fixes are in `reference/`. They are reference m
 
 1. **Never modify the original file.** Output is `<name> - mended.pptx` in the same folder (configurable), plus a report.
 2. **Scan never mutates.** Detection runs on a read-only view.
-3. **Never shrink text or change font sizes / line spacing as a fit fix.** Grow boxes instead.
+3. **Fit fixes go in a fixed order** (changed by David 2026-10-10): move/resize the box first, then tighten line spacing (floor `fit_min_line_spacing_pct`), then shrink the font as a last resort (cap `fit_max_font_shrink_pct`). Every fit change is shown in the review page.
 4. **Images are allowed off-slide.** Off-slide checks apply to text-bearing shapes only.
 5. **Green means verified.** A finding is "fixed" only if a re-scan after the fix no longer detects it.
 6. **One check failing never stops a run.** It becomes a tool-error entry in the report.
@@ -199,7 +199,7 @@ Rules every check follows:
 3. **Plan:** collect fixable findings for checks with Fix on. The `EditSession` refuses two fixes touching the same property of the same shape in one pass (`conflict` → `yellow`, reported).
 4. **Apply** in dependency order (fonts before geometry before layout: font changes alter every later measurement).
 5. **Write** the output file.
-6. **Re-scan** the output with all enabled checks. Findings that disappeared → `green_fixed`. Still there → `red`. Newly appeared (a fix caused a problem) → `red` with "introduced by <check>".
+6. **Re-scan** the output with all enabled checks. Findings that disappeared → `green_fixed`. Still there → `red`. Newly appeared (a fix caused a problem) → keeps the check's own severity, with "introduced by <check>" (changed 2026-10-10: an orphan caused by a font fix is a yellow, not an emergency).
 7. **Emit** summary + report.
 
 ### 5.3 Engine CLI and events
@@ -274,7 +274,7 @@ Status column: **Seen** = present in the PAT deck; **Expected** = needs a fixtur
 | P001 | Slide auto-advances | `p:transition` has `advTm` (advance after a time) | Remove the timed advance, keep click advance | Check (Fix off by default; may be an intended loop) → yellow | Expected |
 | P002 | Click advance disabled | `p:transition advClick="0"` with no timed advance (slide can get stuck) | Re-enable click advance | Check + Fix → red if found | Expected |
 | P003 | Deck set to kiosk / loop mode | `presProps.xml` show settings: kiosk, loop until Esc | None | Check only → yellow | Expected |
-| M001 | Video won't start on its own | Video play mode is "When clicked on" or "In click sequence", not "Automatically" (§7.3) | Rewrite the slide's timing so it plays automatically | Check (Fix after validation) → yellow | Expected |
+| M001 | Video won't start from the clicker | Play mode "When clicked on" or no start setting (§7.3). "In click sequence" and "Automatically" are fine | Convert to "In click sequence" (needs a PowerPoint-saved "When clicked on" fixture first) | Check → red/yellow | Corpus |
 | M002 | Media inventory | Every video/audio on every slide (§7.4) | None; produces the media list | Always on, informational | Expected |
 | M003 | Linked media missing | Media relationship is external (`TargetMode="External"`) or the target file isn't in the package | None | Check only → red | Expected |
 | M004 | Video format risky on Mac/PC | Container/codec PowerPoint on the other platform may not play (e.g. WMV on Mac) | None; suggest MP4 (H.264/AAC) | Check only → yellow | Expected |
@@ -388,7 +388,7 @@ Each phase ends with something usable. Do not start a phase until the previous o
 | ~~Ship inside SlideFluid or separate app~~ | **Decided: separate app**, each app gets a button that launches the other (2026-10-07) | — |
 | Fixes inside groups | Deferred in v1; revisit with corpus evidence | Phase 6 |
 | Auto-advance default | Fix off (current: some decks loop on purpose) or on for the Canva/Google presets | Phase 2 |
-| Default target play mode | Automatically (current) or In click sequence | Phase 2 |
+| ~~Default target play mode~~ | **Decided: In click sequence** (2026-10-09) | — |
 | Google Fonts source | Official API (needs a key) or google/fonts GitHub metadata | Phase 2b |
 | Bundle ffprobe | Adds ~50–80 MB per platform; alternative pymediainfo is smaller but needs its native library | Phase 2 |
 
@@ -472,3 +472,65 @@ Each phase ends with something usable. Do not start a phase until the previous o
 | X003 | Needs another app | Embedded OLE objects, ActiveX controls, macro-enabled package | yellow |
 | X004 | Linked to a local path | External relationships pointing at `C:\…`, `/Users/…` or `file://` | red |
 | C007 | Review comments left in | Comment parts present | yellow (fix: remove, off) |
+
+### 2026-10-09: phase 2 built
+
+- **Video play modes are evidence-based.** Corpus: 31 videos in 17 decks, saved by Mac and Windows PowerPoint. The timing trees are saved as fixtures in `tests/fixtures/media_modes/` (structure only, no client content). "Automatically" = play step `nodeType="afterEffect"` in click group 1, plus an `evt="onBegin"` condition on that group. "In click sequence" = `clickEffect`. Identical on both platforms. Also confirmed: `<p:video fullScrn="1">`, `repeatCount="indefinite"` (loop), `showWhenStopped="0"` (hidden), `vol` / `mute`. **Not yet seen** (reported as unknown/unconfirmed): "When clicked on" and "Rewind after playing".
+- **M001 target changed (David, 2026-10-09):** shows are clicker-driven, so the goal is **"In Click Sequence"**, not "Automatically". Both of those are fine; M001 flags only **"When Clicked On"** (red) and videos with **no start setting** (yellow), since the clicker can't start either. The earlier "make it automatic" fix was removed.
+- **"When Clicked On" found (Dropbox corpus, 2026-10-09: 307 videos, 727 decks):** 8 videos (6 Windows saves, 2 Mac) have only the self-trigger and no play step in the click sequence. That is exactly a click-sequence save minus its main-sequence block, on both platforms. The M001 fix inserts PowerPoint's own block (multiple videos on one slide become clicks 1, 2, 3 in order). Tested: the result matches PowerPoint's click-sequence save structurally; a real 47-slide deck converted 6 videos and opened and exported cleanly in Mac PowerPoint. **Confirmed by David in PowerPoint 2026-10-10** (all converted videos show In Click Sequence; slide 27's three videos are clicks 1–3). Fix **on by default**.
+- **G001 is red only when geometry proves the words are cut off:** left/right-aligned text whose first character position (box edge + inner margin + paragraph indent) is past the slide edge. Other overhangs are yellow, the fix is refused, and the visual review shows them. Overhangs inside a box's own inner margin are ignored. Corpus: 206 boxes cross an edge in 17 decks, most harmlessly. **PAT slide 22** (centered, 0.56 in off the left) is yellow: the hand-made MacFix left it in place too.
+- **Visual review shipped** in the HTML report. Slide images are JPEG (PNG made a 30-slide report 15.7 MB; JPEG makes it 2.3 MB). Slides whose before and after renders are visually identical fold into one line. Outlines sit outside shapes so they never cover text: a first version hid the first letters and made correct text look cut off.
+- **Source fingerprint (X001):** Canva = 20 × 11.25 in slides or `(MS)` font aliases; Google = shapes named `Google Shape;…` or 10 × 5.625 in; PDF conversion = ≥80 % of slides are one full-slide picture.
+
+### 2026-10-10: layout fit and review page (David's review of the PAT report)
+
+**Verified:** M001 "When Clicked On" → "In Click Sequence" works in PowerPoint (fix on by default).
+
+**What a good layout means (David):**
+- **Safe zone:** a **5 % border on every edge** (`safe_zone_pct`). Text must sit inside it, especially on projected screens. PAT slide 29's text runs to the bottom edge, which is bad.
+- **No orphans:** never a single word alone on a paragraph's last line. PAT slide 27: "whole".
+- **Overlaps:** box overlap doesn't matter; **text overlapping other text is critical**. Text fully inside a graphic is assumed intentional; text **partially** over a graphic is a possible problem.
+- **Font fixes can make layout worse.** The real font is wider and re-wraps (PAT slides 19 and 27), so layout checks must run after font fixes and judge the result.
+
+**Fit fixes allowed (rule 3 above):** box first, then line spacing, then font size (last resort).
+
+**Layout source:** what PowerPoint actually draws. Words and lines come from PowerPoint's own PDF export (already produced for the visual review) via Poppler `pdftotext -bbox-layout`. This gives line breaks, word positions and real text extents per slide, with no font measuring of our own (CLAUDE.md rule 4). Windows: the same PDF route via COM.
+
+**Review page:** blocks in severity order, then slide order:
+1. Text off the slide / still broken
+2. Visible changes SlideTistic made (verify)
+3. Needs a look
+4. Changed underneath, looks identical (one folded line)
+
+Each slide appears once, in its most severe block. Boxes are coloured by **kind** (font, placement, layout fit, media/playback, content) with a legend; hovering a box shows the details. Off-slide text gets an alert banner at the top.
+
+**Diagnostic mode** (on until we leave testing): every finding and change shows the rule that decided it, with the numbers used, so David can disagree precisely.
+
+### 2026-10-10 (later): layout fit fixes
+
+David reviewed the first layout report: the problems were flagged but not fixed ("after" unchanged), and the font fix made slide 19 worse. Now:
+
+- **Layout fixes run in rounds after all other fixes.** Each round: save the working copy → PowerPoint renders it → detect → fix. There is **one change per slide per round**, so each fix is judged against a fresh render of its slide; two blind changes on the same slide collided (PAT 24). Rounds stop when nothing changes (`fit_max_rounds`, 6).
+- **Re-wrap prediction** (`engine/core/fit.py: Reflow`): PowerPoint's own word widths, line pitch and paragraph gaps from the render predict the line breaks at any box width. It is calibrated conservatively against the breaks PowerPoint actually made. Every candidate change must predict: no single-word last lines, no extra lines, **no text over text**, inside the safe zone. A real re-render still verifies each one.
+- **L010 collision:** re-wrap one of the two boxes (smallest width change first, narrowing up to 15 %, widening up to the safe width); then the same search with the font shrunk up to the cap.
+- **L009 orphan:** smallest width change in −15 % … +`body_widen_max_pct` that fixes it.
+- **L008 safe zone**, box → spacing → font:
+  1. Narrow to the safe width.
+  2. Too tall: tighten line spacing to the floor, then shrink the font.
+  3. Nudge in (landing slightly inside the line).
+  4. **Never onto other text.** If the nudge would hit text below, *push* that text down first when it has room; if a bottom-border block can't move up, tighten its spacing. Otherwise leave it for a person: text over text is worse than text near the edge.
+- **Rendered words are matched to boxes in reading order** (each box's text is a known word sequence), so words two boxes share ("Health") and lines pdftotext merges across boxes resolve correctly.
+- **Problems a fix causes** keep their own severity, with "introduced by …".
+- **PAT result:** 57 fixed, 1 still broken (slide 18's 'care' orphan resists the prediction). The left-over yellows are top/bottom-border cases where nothing can make room without breaking another rule.
+
+**Source shout (David):** the report opens with "CANVA DETECTED! Buckle up, we got a gRaPhIc dEsIgNeR on our hands." (plus Google / Keynote / PDF versions). In the app (phase 3) this belongs on the results header, and the Fun skin can go wilder.
+
+### 2026-10-10 (evening): text-based fitting + final safety pass (David's second review)
+
+- **Headers keep their line count.** 1 → 2 lines in a header breaks the designer's layout. Header = the slide's largest, short (≤ 12 words) text. **L001** compares it with PowerPoint's render of the *original* deck and fixes it (widen, then font). A lone text block (PAT 19) isn't a header; balanced lines with no orphan are enough there.
+- **Font shrink cap raised to 15 %** (`fit_max_font_shrink_pct`).
+- **Decisions use where the text is drawn, never the box edge.** A box clamp shoved PAT 18's bullets (box 0.8 in off-slide, text indented 1.6 in) 1.8 in right, under an illustration. One search (`fit.plan_fit`) serves every fit fix: box → line spacing → font, cheapest first. Each candidate's re-wrap is predicted, and it must never leave the slide, never land on other text, never slide onto a **new image**, add no orphans, and (headers) no lines. Only the safe-zone fix must end fully inside the 5 % border; the others must not end up further into it than they already are.
+- **"Images" = pictures + shapes filled with an image.** Canva exports photos and charts as image-filled freeforms (PAT 5). Plain coloured panels behind text are not obstacles.
+- **Final safety pass:** after the fit rounds, PowerPoint renders the result once more. Any slide now worse than before the layout fixes (text off the slide, text over text, words hidden behind an image, a header with more lines) is put back exactly as it was and reported ("undone by the final safety check"). **Text may never go off a slide.**
+- **An unfinished fix keeps the finding's own severity.** A title still near the edge is "look at", not "broken". Red is for what the check itself calls red.
+- **PAT:** 58 fixed, 0 still broken; the safety pass restored slide 18 when an intermediate fix hid words behind the illustration.

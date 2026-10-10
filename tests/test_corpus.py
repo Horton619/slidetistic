@@ -9,6 +9,7 @@ changing anything.
 """
 import hashlib
 import json
+import zipfile
 from collections import Counter
 from pathlib import Path
 
@@ -29,10 +30,13 @@ CHANGED_DECKS: list[str] = []
 SKIP_DIRS = {"site-packages", "node_modules", "venv", ".venv", "myenv", "__MACOSX"}
 
 
+SF_DATALESS = 0x40000000    # macOS: cloud placeholder (Dropbox/iCloud online-only); reading it downloads it
+
+
 def find_decks(root: Path) -> list[Path]:
-    """Real decks only: no Office lock files, no our own outputs, nothing inside software folders."""
+    """Real decks only: no Office lock files, our own outputs, software folders, or online-only files."""
     return sorted(p for p in root.rglob("*.pptx")
-                  if not p.name.startswith(("~$", "._")) and " - mended" not in p.name
+                  if p.is_file() and not getattr(p.stat(), "st_flags", 0) & SF_DATALESS and not p.name.startswith(("~$", "._")) and " - mended" not in p.name
                   and not SKIP_DIRS & set(p.relative_to(root).parts))
 
 
@@ -54,14 +58,22 @@ def rows(findings) -> list[list]:
 
 
 def current(deck: Path, tmp_path: Path) -> dict:
-    result = scan(deck, CHECKS, RunConfig())
+    try:
+        result = scan(deck, CHECKS, RunConfig())
+    except zipfile.BadZipFile as e:
+        pytest.skip(f"damaged deck: {e}")
     snap = {"checks": {c.id: c.version for c in CHECKS}, "scan": rows(result.findings), "repair": None}
     errors = [f for f in result.findings if f.status == Status.TOOL_ERROR]
     assert not errors, f"check crashed: {[(f.check_id, f.message) for f in errors]}"
 
     if any(f.check_id in FIX_ON and f.status in (Status.RED, Status.YELLOW) for f in result.findings):
-        once = repair(deck, CHECKS, RunConfig(), out_path=tmp_path / "once.pptx")
-        twice = repair(once.output_path, CHECKS, RunConfig(), out_path=tmp_path / "twice.pptx")
+        try:
+            once = repair(deck, CHECKS, RunConfig(), out_path=tmp_path / "once.pptx")
+            twice = repair(once.output_path, CHECKS, RunConfig(), out_path=tmp_path / "twice.pptx")
+        finally:
+            # Repaired copies of big decks add up to tens of GB over a corpus run: delete as we go.
+            for name in ("once.pptx", "twice.pptx"):
+                (tmp_path / name).unlink(missing_ok=True)
         introduced = [f for f in once.findings if "introduced_by" in f.evidence]
         assert not introduced, f"repair introduced problems: {[(f.check_id, f.subject, f.evidence['introduced_by']) for f in introduced]}"
         assert not twice.changes, f"second repair still changed {len(twice.changes)} things (fix not idempotent)"

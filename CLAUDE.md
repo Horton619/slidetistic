@@ -18,9 +18,11 @@ before adding a fix.
 2. **Data goes in `engine/rules/*.yaml`, not code.** A new font alias, Office font, Canva-only
    font, threshold or preset default is a YAML edit with no code change.
 3. **Checks never edit the deck directly.** Only through `EditSession` in `fix()`. `detect()` is read-only.
-4. **Checks never measure text themselves.** Use `ctx.layout`. Estimate-based findings cap at yellow.
+4. **Checks never measure text themselves.** Use `ctx.layout` (PowerPoint's own render via PDF). Estimate-based findings cap at yellow.
+   Every finding should say *why* in `evidence["rule"]`: the heuristic and the numbers (diagnostic mode).
 5. **Never touch pictures for off-slide reasons.** Off-slide rules apply to text-bearing shapes only.
-6. **Never shrink fonts or change line spacing to make text fit.** Grow the box.
+6. **Fit fixes in order: box, then line spacing, then font size** (David, 2026-10-10). Floors and caps live in
+   `thresholds.yaml`; every fit change must be visible in the review page.
 7. **Never modify the input file.** Tests assert this.
 8. **Don't change another check's behavior to make a new one pass.** If two checks conflict,
    declare `runs_after` or raise it with David.
@@ -66,8 +68,17 @@ venv/bin/python -m pytest -m corpus            # snapshot tests on real decks (l
 venv/bin/python -m pytest -m corpus --update-snapshots   # only after David accepts the diff
 venv/bin/python -m engine.cli list-checks --json
 venv/bin/python -m engine.cli scan <deck.pptx> --json
-venv/bin/python -m engine.cli repair <deck.pptx> --preset canva --json
+venv/bin/python -m engine.cli repair <deck.pptx> --preset canva --json   # + "<out> report.html" with visual review
+venv/bin/python -m engine.cli repair <deck.pptx> --no-visual            # report without PowerPoint renders
+venv/bin/python -m engine.cli media <deck.pptx> --xlsx out.xlsx          # inventory + download list
 ```
+
+Reports with client slides go in the git-ignored `corpus/reports/`; view them with the `reports`
+preview server (`.claude/launch.json`, port 8799). The visual review drives PowerPoint for Mac via
+AppleScript. Working copies get unique names (`slidetistic-<uuid>-<label>.pptx`); after opening, the renderer
+takes the *active* presentation and confirms its full path before exporting/closing. Never address a
+presentation by name, and never enumerate David's open presentations: a name clash once closed his deck.
+AppleScript gotcha: `out` is a reserved word in PowerPoint's dictionary; `whose` filters aren't supported.
 
 **Corpus:** the real-deck folder is read from `--corpus`, `$SLIDETISTIC_CORPUS`, or the git-ignored
 `.corpus-path` file (currently David's `~/Downloads`). Snapshots live in the git-ignored `corpus/snapshots/`.

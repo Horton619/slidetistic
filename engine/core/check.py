@@ -12,7 +12,8 @@ class Context:
     thresholds: dict = field(default_factory=dict)
     preset: str = "any"
     crew_fonts: set[str] = field(default_factory=set)   # casefolded; fonts installed on show machines
-    layout: object = None   # LayoutProvider, phase 4
+    layout: object = None   # LayoutProvider: the deck as PowerPoint draws it
+    baseline_lines: dict = field(default_factory=dict)   # (slide, shape id) → lines in the ORIGINAL deck
 
 
 class Check:

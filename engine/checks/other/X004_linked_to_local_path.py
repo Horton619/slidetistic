@@ -13,6 +13,9 @@ class LinkedToLocalPath(Check):
     def detect(self, deck, ctx):
         findings, seen = [], set()
         for rel in content.external_rels(deck):
+            # Linked video/audio is M003's (it knows whether the file sits next to the deck).
+            if rel.reltype.rsplit("/", 1)[-1] in ("video", "audio", "media"):
+                continue
             if not content.is_local_path(rel.target) or (rel.slide, rel.target) in seen:
                 continue
             seen.add((rel.slide, rel.target))

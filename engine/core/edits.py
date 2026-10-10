@@ -22,6 +22,12 @@ class EditSession:
         self._owner: dict[tuple, str] = {}
         self.check_id: str | None = None
         self._runs_after: set[str] = set()
+        self._refiners: set[str] = set()
+
+    def allow_refining(self, check_ids):
+        """Checks that may adjust each other's edits (the layout fit pass: it re-renders between rounds,
+        so a later round's change is a refinement of an earlier one, not a fight)."""
+        self._refiners = set(check_ids)
 
     def begin(self, check_cls):
         """Called by the runner before each check's fixes."""
@@ -87,7 +93,8 @@ class EditSession:
     def _claim(self, key: tuple):
         owner = self._owner.get(key)
         # A check that declares runs_after=[owner] is refining that check's result, not fighting it.
-        if owner is not None and owner != self.check_id and owner not in self._runs_after:
+        refining = owner in self._refiners and self.check_id in self._refiners
+        if owner is not None and owner != self.check_id and owner not in self._runs_after and not refining:
             raise EditConflict(f"{key[-1]} was already changed by {owner}")
         self._owner[key] = self.check_id
 

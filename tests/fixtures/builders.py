@@ -57,6 +57,34 @@ def picture(x=1, y=1, w=2, h=2, px=(4, 4), link=None, blob=None):
     return add
 
 
+def video(x=1, y=1, w=6, h=3.4, name="clip.mp4", data=b"\x00\x00\x00\x18ftypmp42"):
+    """A video shape (python-pptx's own XML). Give the slide a real PowerPoint timing with make_deck(timing=…)."""
+    def add(shapes):
+        return shapes.add_movie(io.BytesIO(data), Inches(x), Inches(y), Inches(w), Inches(h),
+                                mime_type="video/mp4")
+    return add
+
+
+MEDIA_MODES = Path(__file__).parent / "media_modes"
+
+
+def set_timing(slide, mode: str):
+    """Replace the slide's <p:timing> with one saved by real PowerPoint (tests/fixtures/media_modes/<mode>.xml),
+    pointed at the slide's first video."""
+    from lxml import etree
+    pic = next(sh for sh in slide.shapes if sh._element.find(".//" + qn("a:videoFile")) is not None)
+    xml = (MEDIA_MODES / f"{mode}.xml").read_text().split("-->", 1)[1].replace("{SPID}", str(pic.shape_id))
+    new = etree.fromstring(xml.strip())
+    root = slide._element
+    old = root.find(qn("p:timing"))
+    if old is not None:
+        root.remove(old)
+    anchor = root.find(qn("p:transition"))
+    if anchor is None:
+        anchor = root.find(qn("p:clrMapOvr"))
+    anchor.addnext(new) if anchor is not None else root.find(qn("p:cSld")).addnext(new)
+
+
 def group(*children, x=None, y=None):
     """A group of the given shapes. x/y (inches) move the whole group after building."""
     def add(shapes):
@@ -90,7 +118,7 @@ def embed(declared: str, slot: str, family: str, style: str = "Regular", *, weig
 
 
 def make_deck(folder: Path, *shapes, slides=None, size=WIDE, notes=None, layout=6,
-              titles=None, name="deck.pptx", embeds=(), hidden=(), post=None) -> Path:
+              titles=None, name="deck.pptx", embeds=(), hidden=(), post=None, timing=None) -> Path:
     """`shapes` fills one slide; `slides` is a list of shape lists. layout 6 = Blank, 0/1 have placeholders.
 
     notes: one string for every slide, or a list per slide. hidden: 1-based slide numbers.
@@ -109,6 +137,8 @@ def make_deck(folder: Path, *shapes, slides=None, size=WIDE, notes=None, layout=
             slide.notes_slide.notes_text_frame.text = slide_notes
         if i + 1 in hidden:
             slide._element.set("show", "0")
+        if timing and (timing.get(i + 1) if isinstance(timing, dict) else timing):
+            set_timing(slide, timing.get(i + 1) if isinstance(timing, dict) else timing)
     if embeds:
         _embed_fonts(prs, embeds)
     if post:

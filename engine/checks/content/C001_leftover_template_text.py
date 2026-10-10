@@ -26,7 +26,9 @@ class LeftoverTemplateText(Check):
                     findings.append(Finding(self.id, status,
                         f"'{hit}' looks like template text that was never replaced.",
                         slide=n, shape_id=shape.shape_id, shape_name=shape.name, subject=hit.lower(),
-                        evidence={"text": " ".join(text.split())[:120]}))
+                        evidence={"text": " ".join(text.split())[:120],
+                                  "rule": ("matched a red phrase in template_text.yaml" if status == Status.RED
+                                           else "matched a yellow whole word in template_text.yaml (often real text)")}))
         return findings
 
 

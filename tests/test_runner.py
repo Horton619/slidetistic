@@ -64,3 +64,31 @@ def test_cli_rejects_non_pptx(tmp_path, capsys):
     key.write_bytes(b"")
     assert cli.main(["scan", str(key), "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["type"] == "error"
+
+
+def test_cli_explains_folder_named_pptx(tmp_path, capsys):
+    # Dropbox 2026-10-09: "Friday Morning Opening Session.pptx" was a folder of slide JPEGs.
+    folder = tmp_path / "Opening Session.pptx"
+    folder.mkdir()
+    (folder / "1.jpg").write_bytes(b"x")
+    assert cli.main(["scan", str(folder), "--json"]) == 2
+    assert "folder of slide images" in json.loads(capsys.readouterr().out)["message"]
+
+
+def test_cli_explains_damaged_file(tmp_path, capsys):
+    bad = tmp_path / "broken.pptx"
+    bad.write_bytes(b"not a zip")
+    assert cli.main(["scan", str(bad), "--json"]) == 2
+    assert "isn't a valid PowerPoint file" in json.loads(capsys.readouterr().out)["message"]
+
+
+def test_introduced_findings_keep_their_severity_and_name_the_cause():
+    # David 2026-10-10: an orphan caused by a font fix is "needs a look", not an emergency.
+    from engine.core import Change, Finding
+    from engine.core.runner import _reconcile
+    after = [Finding("L009", Status.YELLOW, "'struggles?' alone", slide=19, shape_id=3, subject="para0"),
+             Finding("L008", Status.RED, "off the bottom", slide=29, shape_id=2, subject="off-slide")]
+    changes = [Change("F001", None, None, None, "font name", "Roboto Slab Bold", "Roboto Slab", part="/ppt/slides/slide19.xml")]
+    out = {f.check_id: f for f in _reconcile([], after, {}, changes)}
+    assert out["L009"].status == Status.YELLOW and out["L009"].evidence["introduced_by"] == "F001"
+    assert out["L008"].status == Status.RED

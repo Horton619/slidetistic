@@ -1,0 +1,23 @@
+# M004: media that may not play on the show machine. Keys are lower-case ffprobe names or file extensions.
+# Safe everywhere: .mp4 / .m4v / .mov with H.264 video and AAC audio.
+extensions:
+  wmv: Windows Media; Mac PowerPoint can't play it
+  wma: Windows Media audio; Mac PowerPoint can't play it
+  avi: AVI; often needs codecs the show machine doesn't have
+  flv: Flash video; PowerPoint can't play it
+  mkv: MKV; PowerPoint support is unreliable
+  webm: WebM; older PowerPoint can't play it
+  mpg: MPEG-1/2; unreliable in current PowerPoint
+  mpeg: MPEG-1/2; unreliable in current PowerPoint
+video_codecs:
+  hevc: H.265/HEVC; Windows needs a paid HEVC add-on to play it
+  vp9: VP9; older PowerPoint can't play it
+  av1: AV1; needs a recent Windows codec pack
+  prores: ProRes; huge and often stutters in PowerPoint
+  wmv1: Windows Media; Mac PowerPoint can't play it
+  wmv2: Windows Media; Mac PowerPoint can't play it
+  wmv3: Windows Media; Mac PowerPoint can't play it
+  mpeg2video: MPEG-2; unreliable in current PowerPoint
+audio_codecs:
+  wmav2: Windows Media audio; Mac PowerPoint can't play it
+  opus: Opus audio; older PowerPoint can't play it

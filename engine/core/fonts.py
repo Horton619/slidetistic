@@ -69,11 +69,19 @@ def alias(name: str) -> str:
 
 
 def split_style(name: str) -> tuple[str, bool, bool] | None:
-    """'Roboto Bold Italic' → ('Roboto', True, True). None when no fixable suffix."""
+    """'Roboto Bold Italic' → ('Roboto', True, True). None when no fixable suffix.
+
+    'Tilda Sans Extra Bold' is NOT 'Tilda Sans Extra' + bold (Dropbox corpus 2026-10-09): a weight
+    modifier before Bold makes it a weight PowerPoint can't switch to (F003's job).
+    """
+    modifiers = {m.casefold() for m in rules.load("weight_suffixes").get("modifiers", [])}
     for entry in rules.load("weight_suffixes")["fixable"]:
         suffix = " " + entry["suffix"]
         if name.endswith(suffix) and len(name) > len(suffix):
-            return name[: -len(suffix)], entry.get("bold", False), entry.get("italic", False)
+            base = name[: -len(suffix)]
+            if base.rsplit(" ", 1)[-1].casefold() in modifiers:
+                return None
+            return base, entry.get("bold", False), entry.get("italic", False)
     return None
 
 

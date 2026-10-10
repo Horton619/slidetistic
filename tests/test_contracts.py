@@ -35,6 +35,9 @@ def test_metadata_valid(cls):
     assert set(cls.runs_after) <= all_ids
     if cls.report_only:
         assert cls.fix is Check.fix, "report_only checks must not define fix()"
+    else:
+        # 2026-10-10: L010's fix() was pasted inside a helper function and silently never ran.
+        assert cls.fix is not Check.fix, "checks with a fix must define fix() on the class"
 
 
 @pytest.mark.parametrize("deck_name", CORNER_DECKS)

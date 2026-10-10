@@ -12,8 +12,8 @@ def test_c007_classic_and_modern_comments(tmp_path):
         add_part(prs, prs.slides[1].part, "/ppt/comments/modernComment_1.xml",
                  "application/vnd.ms-powerpoint.comments+xml", MODERN_RT)
     src = make_deck(tmp_path, slides=[[text_box("A")], [text_box("B")]], post=post)
-    found = [(f.slide, f.status) for f in run_scan(src, "C007").findings]
-    assert found == [(1, Status.YELLOW), (2, Status.YELLOW)]
+    [f] = run_scan(src, "C007").findings
+    assert (f.status, f.evidence["slides"]) == (Status.YELLOW, [1, 2]) and "1–2" in f.message
 
 
 def test_c007_no_comments_not_flagged(tmp_path):

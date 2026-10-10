@@ -17,12 +17,22 @@ class ReviewComments(Check):
     sources = ["any"]
 
     def detect(self, deck, ctx):
-        findings = []
-        for n, slide in enumerate(deck.slides, 1):
-            count = sum(1 for rel in slide.part.rels.values()
-                        if not rel.is_external and rel.target_part.content_type in COMMENT_TYPES)
-            if count:
-                findings.append(Finding(self.id, Status.YELLOW,
-                    "Slide has review comments. Check the deck is the final version.",
-                    slide=n, subject="comments", evidence={"comment_parts": count}))
-        return findings
+        # One finding per deck (Dropbox corpus: 101 per-slide findings in 32 decks was noise).
+        slides = [n for n, slide in enumerate(deck.slides, 1)
+                  if any(not rel.is_external and rel.target_part.content_type in COMMENT_TYPES
+                         for rel in slide.part.rels.values())]
+        if not slides:
+            return []
+        return [Finding(self.id, Status.YELLOW,
+                        f"Review comments on {len(slides)} slide{'s' * (len(slides) != 1)} ({_ranges(slides)}). "
+                        f"Check this is the final version.", subject="comments", evidence={"slides": slides})]
+
+
+def _ranges(nums) -> str:
+    out, start = [], None
+    for i, n in enumerate(nums):
+        start = n if start is None else start
+        if i + 1 == len(nums) or nums[i + 1] != n + 1:
+            out.append(str(start) if start == n else f"{start}–{n}")
+            start = None
+    return ", ".join(out)

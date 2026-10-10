@@ -23,6 +23,7 @@ class ShapeView:
     rotation: float
     flipped: bool
     text_bearing: bool
+    xf: Transform = None           # maps the shape's own coordinates to slide coordinates
 
     @property
     def slide_number(self) -> int:
@@ -84,6 +85,7 @@ class Deck:
                 rotation=getattr(shape, "rotation", 0.0) or 0.0,
                 flipped=xfrm is not None and (xfrm.get("flipH") == "1" or xfrm.get("flipV") == "1"),
                 text_bearing=has_text(shape),
+                xf=xf,
             ))
             if kind == GROUP:
                 child_xf = xf.child_transform(xfrm) if xfrm is not None else xf

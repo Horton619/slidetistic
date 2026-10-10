@@ -23,6 +23,9 @@ class EmbeddedFontListMismatch(Check):
                 continue
             what = ", ".join(f"{fonts.alias(s.info.family)} {s.info.slot}" for s in wrong)
             evidence = {"slots": [{"listed": s.slot, "family": s.info.family, "style": s.info.style} for s in wrong]}
+            evidence["rule"] = ("listed name = real family + a style word/alias that F001/F002 also fix in the text, "
+                                "so it can be re-filed safely" if all(_canva_pattern(ef, s) for s in wrong) else
+                                "the text uses the listed name; re-filing would disconnect it from its font")
             if all(_canva_pattern(ef, s) for s in wrong):
                 findings.append(Finding(self.id, Status.RED,
                     f"Embedded font listed as '{ef.typeface}' is really {what}. "

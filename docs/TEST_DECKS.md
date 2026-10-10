@@ -55,6 +55,12 @@ when you have one. Example: `canva_pat-mbd.pptx`, `canva_pat-mbd - handfixed.ppt
 |---|---|---|
 | 19 | 2–3 **`.key` files**, plus PowerPoint exports of them that broke | Keynote conversion checks |
 
+## Wanted: "When Clicked On" reference deck (confirms the M001 fix; pattern already found in Dropbox decks)
+
+In PowerPoint, insert any short video on slide 1, then **Animations → Start: When Clicked On**. On slide 2,
+insert a video and leave it **In Click Sequence**. Save as `media_modes_mac.pptx` (and the same on a
+Windows show PC as `media_modes_win.pptx`). Drop them in `corpus/`. Two minutes each.
+
 ## Things I'll build in PowerPoint myself (Mac), you don't need to find these
 
 - **Video play-mode reference decks** (SPEC §7.3): one slide each set to Automatically, In click

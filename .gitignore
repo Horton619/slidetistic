@@ -18,3 +18,6 @@ corpus/
 
 # Local path to the real-deck corpus (pytest -m corpus)
 .corpus-path
+
+# Machine-specific dev server config (absolute paths)
+.claude/launch.json

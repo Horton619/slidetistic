@@ -16,3 +16,11 @@ low_res_ratio: 0.5              # image shown at >200% of its pixels → soft on
 low_res_min_shown_px: 480       # …and it fills at least a quarter of the screen width (small logos don't matter)
 deck_size_warn_mb: 500          # X002
 filename_max_chars: 120         # X002
+target_play_mode: click_sequence # M001: videos must start from the clicker ("In click sequence"); "Automatically" is also fine
+offslide_tolerance_in: 0.02     # G001/G002: overhangs smaller than this are ignored
+safe_zone_pct: 5                # David 2026-10-10: text stays inside a 5% border on every edge
+fit_min_line_spacing_pct: 85    # fit fixes never tighten line spacing below this share of the original
+fit_max_font_shrink_pct: 15     # last resort: font may shrink at most this much (David 2026-10-10: raised from 10)
+orphan_max_words: 1             # a paragraph's last line with this many words or fewer is an orphan
+overlap_min_pt: 2               # L010/L011: overlaps thinner than this (in points) are ignored
+fit_max_rounds: 6               # repair re-renders and re-checks layout at most this many times

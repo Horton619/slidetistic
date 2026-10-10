@@ -28,6 +28,14 @@ class WeightInFamilyName(Check):
             base, bold, italic = fonts.split_style(name)
             flags = " and ".join(f for f, on in (("bold", bold), ("italic", italic)) if on)
             evidence = {**fonts.usage_evidence(group), "becomes": base, "flags": flags}
+            fam = fonts.alias(base).casefold()
+            source = ("an Office font" if fam in rules.names("office_fonts") else
+                      "embedded in the deck" if fam in fonts.embedded_families(deck) else
+                      "on the crew font list" if fam in ctx.crew_fonts else "used elsewhere in the deck")
+            evidence["rule"] = (f"'{name}' ends in a style word; '{base}' is {source}, so it's a fake family name"
+                                if fam in known else
+                                f"'{name}' ends in a style word, but '{base}' isn't an Office font, embedded, on the "
+                                f"crew list, or used plainly in the deck, so it may be a real family name")
             if fonts.alias(base).casefold() in known:
                 findings.append(Finding(self.id, Status.RED,
                     f"'{name}' isn't a real font name, so Mac PowerPoint swaps in another font "

@@ -33,3 +33,12 @@ def test_f001_real_family_ending_in_bold_is_left_alone(tmp_path):
 def test_f001_plain_family_not_flagged(tmp_path):
     src = make_deck(tmp_path, text_box(font="Roboto"), text_box(font="Calibri", bold=True))
     assert statuses(run_scan(src, "F001"), "F001") == {}
+
+
+def test_f001_extra_bold_is_not_bold(tmp_path):
+    # Dropbox corpus 2026-10-09: 'Tilda Sans Extra Bold' must not become 'Tilda Sans Extra' + bold.
+    src = make_deck(tmp_path, text_box(font="Tilda Sans Extra Bold"), text_box(font="Tilda Sans"),
+                    text_box(font="DIN 2014 Narrow Semi Bold"))
+    assert statuses(run_scan(src, "F001"), "F001") == {}
+    assert set(statuses(run_scan(src, "F003", crew=["Tilda Sans", "DIN 2014 Narrow"]), "F003")) == {
+        "Tilda Sans Extra Bold", "DIN 2014 Narrow Semi Bold"}

@@ -1,7 +1,7 @@
 """scan → fix → write → re-scan → reconcile. One check failing never stops the run."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -25,6 +25,7 @@ class RunConfig:
     fixes: set[str] | None = None    # None = each check's default_fix
     preset: str = "any"
     crew_fonts: set[str] = field(default_factory=set)
+    layout: bool = False             # judge text as PowerPoint draws it (needs PowerPoint; slower)
 
     def check_on(self, c: type[Check]) -> bool:
         return c.id in self.checks if self.checks is not None else c.default_check
@@ -65,8 +66,165 @@ def make_context(config: RunConfig) -> Context:
                    crew_fonts={f.casefold() for f in config.crew_fonts})
 
 
+_RENDERER = None
+
+
+def _layout_for(deck, config: RunConfig):
+    """A PowerPoint-backed layout for this exact deck file, or None (off, or PowerPoint missing)."""
+    global _RENDERER
+    if not config.layout:
+        return None
+    from ..render import PowerPointRenderer
+    from .layout.pdf import PdfLayout
+    if _RENDERER is None:
+        ok, _ = PowerPointRenderer.available()
+        if not ok:
+            return None
+        _RENDERER = PowerPointRenderer()
+    return PdfLayout(deck, _RENDERER)
+
+
+def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
+    """Render the working copy, find layout problems, fix them, repeat (CLAUDE.md rule 6), then a final
+    safety pass.
+
+    One change per slide per round: every fix is judged against a fresh render of its slide (two fixes
+    on one slide in the same round each checked against the other's OLD position: PAT 24).
+    Safety pass (David 2026-10-10): render the result once more; any slide that is now worse than
+    before the layout fixes (text off the slide, text over text, words hidden behind a picture, a
+    header with more lines) goes back to how it was. "Ugly but serviceable" must never become broken.
+    """
+    import tempfile
+    from copy import deepcopy
+    if _layout_for(deck, config) is None:
+        return
+    from .layout.pdf import PdfLayout
+    rounds = int(ctx.thresholds.get("fit_max_rounds", 3))
+    fit_ids = {c.id for c in fitters}
+    edits.allow_refining(fit_ids)
+    snapshots = {n: deepcopy(slide._element) for n, slide in enumerate(deck.slides, 1)}
+    first_change = len(edits.changes)
+    with tempfile.TemporaryDirectory() as tmp:
+        prefit = None
+        for rnd in range(1, rounds + 1):
+            emit({"type": "progress", "stage": "fit", "round": rnd, "rounds": rounds})
+            work = Path(tmp) / f"round{rnd}.pptx"
+            deck.save(work)
+            layout = PdfLayout(deck, _RENDERER, path=work)
+            prefit = prefit or layout
+            rctx = replace(ctx, layout=layout)
+            touched, before = set(), len(edits.changes)
+            for cls in fitters:
+                check = cls()
+                edits.begin(cls)
+                for f in check.detect(deck, rctx):
+                    if f.informational or f.status not in PROBLEM or f.slide in touched:
+                        continue
+                    n = len(edits.changes)
+                    try:
+                        check.fix(deck, f, edits, rctx)
+                        outcome[f.key] = ("attempted", "")
+                    except FixRefused as e:
+                        outcome.setdefault(f.key, ("refused", str(e)))
+                    except EditConflict as e:
+                        outcome[f.key] = ("conflict", str(e))
+                    except Exception as e:  # noqa: BLE001
+                        outcome[f.key] = ("failed", str(e))
+                        errors.append(Finding(cls.id, Status.TOOL_ERROR, f"{cls.title} fix couldn't run: {e}",
+                                              slide=f.slide, shape_id=f.shape_id, shape_name=f.shape_name,
+                                              subject=f.subject, evidence={"exception": type(e).__name__}))
+                    if len(edits.changes) > n:
+                        touched.add(f.slide)
+            if len(edits.changes) == before:
+                break
+        if len(edits.changes) == first_change or prefit is None:
+            return
+        emit({"type": "progress", "stage": "safety"})
+        final_path = Path(tmp) / "final.pptx"
+        deck.save(final_path)
+        final = PdfLayout(deck, _RENDERER, path=final_path)
+        changed = {c.slide for c in edits.changes[first_change:] if c.slide} | {
+            n for n, slide in enumerate(deck.slides, 1)
+            if any(c.part == str(slide.part.partname) for c in edits.changes[first_change:])}
+        for n in sorted(changed):
+            pre, post = _health(deck, prefit, n, ctx), _health(deck, final, n, ctx)
+            worse = [label for label, a, b in (("text off the slide", pre.off, post.off),
+                                               ("text over text", pre.collisions, post.collisions),
+                                               ("words hidden behind a picture", pre.hidden, post.hidden),
+                                               ("a header gained a line", pre.header_excess, post.header_excess))
+                     if b > a]
+            if worse:
+                _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, ", ".join(worse))
+
+
+@dataclass
+class _Health:
+    off: int = 0
+    collisions: int = 0
+    hidden: int = 0
+    header_excess: int = 0
+
+
+def _health(deck, layout, n, ctx) -> _Health:
+    """What PowerPoint actually drew on slide n: text off the slide, text over text, words behind a
+    picture that sits above them, and header lines beyond the original deck's."""
+    from . import fit
+    slide_layout = layout.slide(n)
+    W, H, tol = deck.slide_width, deck.slide_height, 12700
+    h = _Health()
+    for st in slide_layout.values():
+        h.off += sum(1 for l in st.lines if l.left < -tol or l.top < -tol or l.right > W + tol or l.bottom > H + tol)
+    items = [st for st in slide_layout.values() if st.lines]
+    for i, a in enumerate(items):
+        for b in items[i + 1:]:
+            if any(fit.lines_collide(la, lb, 2 * 12700) for la in a.lines for lb in b.lines):
+                h.collisions += 1
+    shapes = [sv for sv in deck.iter_shapes() if sv.slide_number == n]
+    z = {sv.shape_id: i for i, sv in enumerate(shapes)}
+    pics = [(z[sv.shape_id], sv.bounds) for sv in shapes if fit.is_graphic(sv)]
+    for sid, st in slide_layout.items():
+        for l in st.lines:
+            for w in l.boxes:
+                cx, cy = (w.left + w.right) / 2, (l.top + l.bottom) / 2
+                if any(zi > z.get(sid, -1) and b.left <= cx <= b.right and b.top <= cy <= b.bottom for zi, b in pics):
+                    h.hidden += 1
+    for sid, st in slide_layout.items():
+        sv = deck.find_shape(n, sid)
+        was = ctx.baseline_lines.get((n, sid))
+        if sv and was is not None and fit.is_header(deck, sv, slide_layout):
+            h.header_excess += max(0, len(st.lines) - was)
+    return h
+
+
+def _revert_slide(deck, n, snapshot, edits, fit_ids, outcome, reason):
+    """Put slide n back the way it was before the layout fixes, and record why."""
+    from copy import deepcopy
+    slide = deck.slides[n - 1]
+    el = slide._element
+    for child in list(el):
+        el.remove(child)
+    for child in deepcopy(snapshot):
+        el.append(child)
+    partname = str(slide.part.partname)
+    edits.changes[:] = [c for c in edits.changes
+                        if not (c.check_id in fit_ids and (c.slide == n or c.part == partname))]
+    edits.changes.append(Change("SAFETY", n, None, None, "layout fixes undone", reason, "slide kept as it was"))
+    for key, (kind, _) in list(outcome.items()):
+        if key[0] in fit_ids and key[1] == n:
+            outcome[key] = ("refused", f"undone by the final safety check: the fixes made {reason} worse")
+
+
+def cleanup():
+    """Remove the layout renderer's work files (PowerPoint copies and PDFs)."""
+    global _RENDERER
+    if _RENDERER is not None:
+        _RENDERER.cleanup()
+        _RENDERER = None
+
+
 def detect_all(deck: Deck, checks: list[type[Check]], config: RunConfig, ctx: Context,
-               emit: Emit = _noop) -> tuple[list[Finding], list[str]]:
+               emit: Emit = _noop, layout=None) -> tuple[list[Finding], list[str]]:
+    ctx = replace(ctx, layout=layout or _layout_for(deck, config))
     findings, clean = [], []
     enabled = [c for c in checks if config.check_on(c)]
     for n, cls in enumerate(enabled, 1):
@@ -108,7 +266,15 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
            emit: Emit = _noop) -> Result:
     path = Path(path)
     ctx = make_context(config)
-    before, _ = detect_all(Deck(path), checks, config, ctx, emit)
+    original = Deck(path)
+    base_layout = _layout_for(original, config)
+    if base_layout is not None:
+        # Line counts in the ORIGINAL deck: headers must never end up with more (L001, safety pass).
+        # A box with no matched lines in the original render is "unknown", not "zero lines" (PAT 26).
+        ctx = replace(ctx, baseline_lines={(n, sid): len(st.lines)
+                                           for n in range(1, len(original.slides) + 1)
+                                           for sid, st in base_layout.slide(n).items() if st.lines})
+    before, _ = detect_all(original, checks, config, ctx, emit, layout=base_layout)
 
     # Fix in dependency order, re-detecting each check on the working deck so earlier
     # fixes (fonts) are reflected in later checks' findings (geometry, layout).
@@ -117,6 +283,9 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
     outcome: dict[tuple, tuple[str, str]] = {}   # finding key → (kind, detail)
     errors: list[Finding] = []
     fixers = [c for c in checks if config.fix_on(c)]
+    # Layout fixes need a fresh PowerPoint render after every change; they run last, in rounds.
+    fitters = [c for c in fixers if "layout" in c.requires]
+    fixers = [c for c in fixers if "layout" not in c.requires]
     for n, cls in enumerate(fixers, 1):
         emit({"type": "progress", "stage": "fix", "check": cls.id, "index": n, "total": len(fixers)})
         check = cls()
@@ -141,6 +310,9 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
                                       slide=f.slide, shape_id=f.shape_id, shape_name=f.shape_name,
                                       subject=f.subject, evidence={"exception": type(e).__name__}))
 
+    if fitters:
+        _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit)
+
     target = Path(out_path) if out_path else output_path_for(path)
     if target.resolve() == path.resolve():
         raise ValueError("Refusing to overwrite the input file")
@@ -159,6 +331,12 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
     return result
 
 
+def _deck_wide_culprit(changes) -> str | None:
+    """Deck-wide edits (font renames) have no shape; name the checks that made them."""
+    ids = sorted({c.check_id for c in changes if c.shape_id is None})
+    return ", ".join(ids) or None
+
+
 def _reconcile(before, after, outcome, changes) -> list[Finding]:
     after_by_key = {f.key: f for f in after}
     before_keys = {f.key for f in before}
@@ -172,7 +350,8 @@ def _reconcile(before, after, outcome, changes) -> list[Finding]:
         if still is None:
             f.status = Status.GREEN_FIXED
         elif kind == "attempted":
-            still.status = Status.RED
+            # Keeps the re-scan's own severity (David 2026-10-10: a title still near the edge is ugly,
+            # not broken); red stays for what the check itself calls red.
             still.evidence["fix_result"] = "fix ran but the problem is still there"
             f = still
         elif kind in ("refused", "conflict"):
@@ -189,8 +368,9 @@ def _reconcile(before, after, outcome, changes) -> list[Finding]:
         if f.key in before_keys and not f.informational and f.status != Status.TOOL_ERROR:
             continue
         if not f.informational and f.status in PROBLEM:
-            culprit = touched_by.get((f.slide, f.shape_id))
-            f.status = Status.RED
+            # Keep the check's own severity (David 2026-10-10: an orphan caused by a font fix is
+            # "needs a look", text pushed off the slide is still red) and say what caused it.
+            culprit = touched_by.get((f.slide, f.shape_id)) or _deck_wide_culprit(changes)
             f.evidence["introduced_by"] = culprit or "appeared after repair"
         out.append(f)
     return out
