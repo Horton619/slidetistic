@@ -244,7 +244,11 @@ class MacPowerPointRenderer(_Renderer):
         if running:
             vis = self._osa('tell application "System Events" to get visible of process "Microsoft PowerPoint"', 10)
             if vis is None or vis.stdout.strip() != "false":
-                return False        # David's PowerPoint is in view: leave it alone
+                # Shown, but with nothing open nothing of David's is in view (counting, never listing).
+                n = self._osa('with timeout of 10 seconds\ntell application "Microsoft PowerPoint" to count presentations\n'
+                              'end timeout', 20)
+                if n is None or n.stdout.strip() != "0":
+                    return False    # David's PowerPoint is in view: leave it alone
         else:
             self._osa('tell application "Microsoft PowerPoint" to launch', 60)
         self._osa('tell application "System Events" to set visible of process "Microsoft PowerPoint" to false', 10)

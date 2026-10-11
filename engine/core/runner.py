@@ -296,6 +296,16 @@ def _health(deck, layout, n, ctx) -> _Health:
     h = _Health()
     for st in slide_layout.values():
         h.off += sum(1 for l in st.lines if l.left < -tol or l.top < -tol or l.right > W + tol or l.bottom > H + tol)
+    # Words PowerPoint didn't draw at all count too: Mac PowerPoint leaves text that's fully off the
+    # slide out of the PDF, so a box shoved off the slide (or shrunk to nothing) has no lines to count
+    # (app run 2026-10-11: every lower-thirds slide lost its text and the old count saw nothing wrong).
+    from .content import shape_text
+    from .layout.pdf import _tokens
+    for sv in deck.slide_shapes(n):
+        if sv.text_bearing:
+            st = slide_layout.get(sv.shape_id)
+            drawn = sum(len(l.tokens) for l in st.lines) if st else 0
+            h.off += max(0, len(_tokens(shape_text(sv.shape))) - drawn)
     items = [st for st in slide_layout.values() if st.lines]
     for i, a in enumerate(items):
         for b in items[i + 1:]:

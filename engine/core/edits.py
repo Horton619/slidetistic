@@ -38,6 +38,17 @@ class EditSession:
 
     def set_geometry(self, sv: ShapeView, *, left=None, top=None, width=None, height=None):
         """Values are in the shape's own coordinate space (= slide space unless it's in a group)."""
+        # A placeholder that inherits its position from the layout has no <a:xfrm> of its own, and
+        # python-pptx writes only the value being set, leaving the rest 0: moving one sideways made it
+        # zero-size and its text vanished (app run 2026-10-11, lower-thirds deck, every slide). Pin the
+        # inherited position first so a move changes only what it means to.
+        if any(v is not None for v in (left, top, width, height)) and _inherits_xfrm(sv.shape):
+            inherited = {p: getattr(sv.shape, p) for p in ("left", "top", "width", "height")}
+            if None not in inherited.values():
+                self._claim((sv.slide_number, sv.shape_id, "position"))
+                for p, v in inherited.items():
+                    setattr(sv.shape, p, v)
+                self.deck.invalidate()
         for prop, value in (("left", left), ("top", top), ("width", width), ("height", height)):
             if value is None:
                 continue
@@ -108,6 +119,13 @@ class EditSession:
     def _log(self, change: Change):
         self.changes.append(change)
         self.deck.invalidate()          # every edit goes through here: remembered shape lists are stale
+
+
+def _inherits_xfrm(shape) -> bool:
+    """True when the shape has no position of its own (a placeholder taking it from its layout)."""
+    from pptx.oxml.ns import qn
+    sp_pr = shape.element.find(qn("p:spPr"))
+    return getattr(shape, "is_placeholder", False) and (sp_pr is None or sp_pr.find(qn("a:xfrm")) is None)
 
 
 def _set(element, attr: str, value: str | None):
