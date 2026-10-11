@@ -3,6 +3,7 @@
 Real PowerPoint can't run in CI: the `powerpoint` test is skipped unless asked for
 (`pytest -m powerpoint`, on a Mac or Windows machine with PowerPoint and Poppler).
 """
+import json
 import sys
 
 import pytest
@@ -144,3 +145,16 @@ def test_stale_owned_powerpoint_record_is_dropped_without_killing_anything(tmp_p
     monkeypatch.setattr(render, "OWNED_FILE", record)
     assert render._close_orphaned_powerpoint() is False
     assert not record.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process checks")
+def test_powerpoint_of_a_live_engine_is_never_treated_as_orphaned(tmp_path, monkeypatch):
+    # Two engines can run at once (the app and a suite run): the second must not kill the first's PowerPoint.
+    import os
+    parent = os.getppid()
+    record = tmp_path / "owned-powerpoint.json"
+    record.write_text(json.dumps({"pid": 4000000, "started": 1, "engine": parent,
+                                  "engine_started": render._process_started(parent)}), encoding="utf-8")
+    monkeypatch.setattr(render, "OWNED_FILE", record)
+    assert render._close_orphaned_powerpoint() is False
+    assert record.exists()

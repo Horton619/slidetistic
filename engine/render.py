@@ -169,20 +169,26 @@ def _remember_owned(pid: int | None) -> None:
             OWNED_FILE.unlink(missing_ok=True)
         else:
             OWNED_FILE.parent.mkdir(parents=True, exist_ok=True)
-            OWNED_FILE.write_text(json.dumps({"pid": pid, "started": _process_started(pid)}), encoding="utf-8")
+            OWNED_FILE.write_text(json.dumps({"pid": pid, "started": _process_started(pid), "engine": os.getpid(),
+                                              "engine_started": _process_started(os.getpid())}), encoding="utf-8")
     except OSError:
         pass
 
 
 def _close_orphaned_powerpoint() -> bool:
-    """Kill the PowerPoint a previous, killed engine started, if it is still that process and nobody is
-    using it. True when one was closed."""
+    """Kill the PowerPoint a previous engine started, if that engine is gone (killed), the PowerPoint is
+    still that same process, and nobody is using it. Never touches a live engine's PowerPoint: two engines
+    can run at once (the app and a suite run). True when one was closed."""
     import json
     try:
         rec = json.loads(OWNED_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     pid, started = rec.get("pid"), rec.get("started")
+    engine, engine_started = rec.get("engine"), rec.get("engine_started")
+    engine_alive = engine_started is not None and _process_started(engine) == engine_started
+    if engine and engine != os.getpid() and engine_alive:
+        return False                    # the engine that started it is still running: not an orphan
     closed = False
     if (pid in _powerpoint_pids() and started is not None and _process_started(pid) == started
             and not _has_visible_window(pid)):

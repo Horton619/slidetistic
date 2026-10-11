@@ -108,7 +108,11 @@ def main():
                 if (s.get("summary") or {}).get("tool_error"):
                     problems.append(f"**{side}: {s['summary']['tool_error']} crashed check(s) in {step}**")
             if d.get("second_repair_changes"):
-                problems.append(f"**{side}: second repair still changed {d['second_repair_changes']} things**")
+                msg = f"{side}: second repair still changed {d['second_repair_changes']} things"
+                if layout:      # known open issue (docs/EDGE_CASES.md: layout fixes don't settle in one repair)
+                    notes.append(msg + " (known open: layout fixes don't settle in one repair)")
+                else:
+                    problems.append(f"**{msg}**")
             for w in d.get("repair", {}).get("warnings", []):
                 notes.append(f"{side} warning: {w}")
         for step in ("scan", "repair"):

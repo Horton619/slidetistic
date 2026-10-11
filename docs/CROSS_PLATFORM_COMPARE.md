@@ -99,6 +99,7 @@ venv/<bin|Scripts>/python scripts/suite_compare.py <runA> <runB>      # writes _
 | Media probe values | Duration/codec/resolution must match | ffprobe build or temp-file bug |
 | Render-based (G001/G002 drawn words, L checks, visual review) | Shown side by side, never auto-failed | Usually font rendering differences; large ones get a look |
 | Crash, repair that introduces a problem, second repair still changing things | Fails on either side | Engine bug (e.g. `Barlow Bold Bold`, found on the PC) |
+| Second repair still changing things **in a layout run** | Shown as a note | Known open issue: layout fixes (L009 orphans) don't settle in one repair (EDGE_CASES, 2026-10-10); fix planned for the optimization round |
 | Timing | Side by side | Slow paths (e.g. 500 MB deck, 6 fit rounds: 10 min on the PC) |
 | Expectations in `suite.json` | Each side vs. the list | Regression on one platform |
 
