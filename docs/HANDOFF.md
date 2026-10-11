@@ -119,9 +119,15 @@ a SHA-1 of every saved zip part before/after each change. Every pure-speed chang
    **"When Clicked On" video plays on a clicker press in Windows PowerPoint** (suite `media/09`; only verified
    on Mac so far); Poll Everywhere add-in tab storm on the PC (EDGE_CASES, open).
 2. Second-repair changes 14 → 0 (§5). Then `docs/POLISH.md` (red vs yellow in the review is David's newest ask).
-3. David's open questions: M008 ignores photos under 2 MB (flag smaller?); noisy checks (M009, X003, M008, M011,
+3. **Tidy the Dropbox suite, only AFTER the PC's 0.4.2 sweep is in and compared** (David, 2026-10-11: don't move
+   things while the PC is comparing). It's 1.5 GB (1.3 GB decks) and ~3,700 small files in `_runs/`, mostly page
+   images. Plan, all in one pass, with a mailbox note to the PC: (a) keep only the newest run per platform + mode,
+   archive/delete the rest; (b) `suite_run.py` stops saving page images unless asked; (c) move decks into
+   `decks/` (decks are matched by hash, but update SKIP.md, TEST_DECKS.md, `.corpus-path` and the test that
+   names a deck path); (d) handled mailbox notes go to `_mailbox/read/`.
+4. David's open questions: M008 ignores photos under 2 MB (flag smaller?); noisy checks (M009, X003, M008, M011,
    G003 grouping, small L011 overlaps); accept corpus snapshot diffs; Fun-skin tagline list.
-4. Later: P005 click map, C007 remove-comments fix, F009 Google-font downloader, CI off deprecated Node 20 actions,
+5. Later: P005 click map, C007 remove-comments fix, F009 Google-font downloader, CI off deprecated Node 20 actions,
    Windows `.ppt`/`.key` messages reviewed on the PC.
 
 ## 7. How David works (also in his global CLAUDE.md)
