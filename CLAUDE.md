@@ -95,6 +95,10 @@ POWERPNT.EXE process we started, when no other deck or visible window is in it. 
 - Releasing the last COM handle after PowerPoint quits raises a handled `0x80010108`; pytest's fault
   handler prints it as "Windows fatal exception". Harmless.
 
+**Mac ↔ PC suite:** `scripts/suite_run.py` / `scripts/suite_compare.py` run the shared Dropbox
+`SlideTistic Test Suite` and compare platforms; results, reports and notes live in that folder (`_runs/`,
+`_compare/`, `_mailbox/`), never in git. Read `_mailbox/` first. Protocol: `docs/CROSS_PLATFORM_COMPARE.md`.
+
 **Corpus:** the real-deck folder is read from `--corpus`, `$SLIDETISTIC_CORPUS`, or the git-ignored
 `.corpus-path` file: the shared suite in `Dropbox/SlideTistic Test Suite/` (32 decks, same on Mac and PC; its `TEST_DECKS.md` says what each should trigger; never copy it into git). Snapshots live in the git-ignored `corpus/snapshots/`.
 A run takes ~3 min for ~66 decks. It always fails on a crashed check, a repair that introduces a problem,

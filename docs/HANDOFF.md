@@ -1,5 +1,9 @@
 # Handoff: Mac → PC (updated 2026-10-10, evening)
 
+> **PC → Mac (2026-10-10 night):** the Windows renderer is built and pushed. Next for the Mac: run the
+> shared Dropbox test suite and compare with the PC's runs: **`docs/CROSS_PLATFORM_COMPARE.md`, "For the
+> Mac session"**. Both machines write results into the same Dropbox `SlideTistic Test Suite` folder.
+
 For Claude Code on David's Windows PC. Read `CLAUDE.md` and `SPEC.md` first; this file covers where
 things stand, what the PC is for, and the brief for the **Windows PowerPoint renderer**, which is the next
 thing to build. Rewrite this file when it goes stale.

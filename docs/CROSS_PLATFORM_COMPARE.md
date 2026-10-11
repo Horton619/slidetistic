@@ -1,4 +1,29 @@
-# Mac ↔ PC comparison (draft, 2026-10-10)
+# Mac ↔ PC comparison (2026-10-10)
+
+## For the Mac session: do this next
+
+The PC ran the suite on commit `fb7ecba` (Windows renderer). Its results are in the Dropbox suite under
+`_runs/` and there's a note in `_mailbox/`. To compare:
+
+1. `git pull` (same commit as the PC's runs, or newer: then tell the PC to re-run), `venv/bin/pip install -r requirements.txt`.
+2. Quit PowerPoint (the renderer works with it open, but a clean run is easier to compare).
+3. Run from the **Dropbox** copy, not `corpus/vault` (decks are matched by hash, and the Dropbox copy is the
+   one both machines read):
+   ```
+   export SLIDETISTIC_TOOLS="$PWD/vendor/mac"
+   venv/bin/python scripts/suite_run.py --suite ~/Dropbox/"SlideTistic Test Suite"
+   venv/bin/python scripts/suite_run.py --suite ~/Dropbox/"SlideTistic Test Suite" --layout --images
+   ```
+   (Adjust the Dropbox path. Each writes `_runs/<date>-mac-<commit>-<nolayout|layout>/`.)
+4. Compare each Mac run with the PC run of the same kind:
+   ```
+   venv/bin/python scripts/suite_compare.py "<suite>/_runs/<pc run>" "<suite>/_runs/<mac run>"
+   ```
+   The report lands in `<suite>/_compare/`. Read it, log real differences in `docs/EDGE_CASES.md`.
+5. Leave a note in `<suite>/_mailbox/` (`<YYYYMMDD-HHMM>-mac-<subject>.md`): which runs, what differed,
+   what you fixed (commit), and what the PC should run next. Tell David.
+
+Both machines write into the same Dropbox folder, so David can open any run, report or note from either.
 
 Goal: run the **same decks** through the **same engine commit** on the Mac and the PC, and get one report of
 where the two disagree. Show machines are mostly PCs and crew laptops mostly Macs, so a deck must come out
@@ -50,12 +75,12 @@ identified by the SHA-256 of its bytes. The runner checks each file against `sui
 - `errors`: crashed checks, render errors, timeouts (each deck runs in its own process with a time limit,
   so one stuck deck can't stop the run)
 
-## Scripts (to build, in this repo)
+## Scripts
 
 ```
 venv/<bin|Scripts>/python scripts/suite_run.py --suite "<Dropbox>/SlideTistic Test Suite" [--layout] [--images] [--only <glob>]
 venv/<bin|Scripts>/python scripts/suite_compare.py <runA> <runB>      # writes _compare/<runA>__<runB>.md/.html
-venv/<bin|Scripts>/python scripts/suite_manifest.py --suite …          # (Mac, once) TEST_DECKS → suite.json
+# not built yet: suite_manifest.py (TEST_DECKS.md → suite.json with expected findings per deck)
 ```
 
 ## How the comparison judges a difference
