@@ -47,15 +47,33 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def find_decks(suite: Path, only: str | None) -> list[Path]:
-    decks = []
+def skip_rules(suite: Path) -> list[tuple[str, str]]:
+    """<suite>/SKIP.md: lines like "- `*lower thirds*` — reason". Shared by both machines."""
+    import re
+    f = suite / "SKIP.md"
+    if not f.exists():
+        return []
+    return [(m.group(1).lower(), m.group(2).strip(" —-"))
+            for m in re.finditer(r"^- `([^`]+)`(.*)$", f.read_text(encoding="utf-8"), re.M)]
+
+
+def find_decks(suite: Path, only: str | None) -> tuple[list[Path], list[dict]]:
+    """(decks to run, decks skipped by SKIP.md with the rule and reason)."""
+    from fnmatch import fnmatchcase
+    rules = skip_rules(suite)
+    decks, skipped = [], []
     for p in sorted(suite.rglob("*")):
         rel = p.relative_to(suite)
-        if (p.is_file() and p.suffix.lower() in DECK_EXT and not p.name.startswith(("~$", "._"))
+        if not (p.is_file() and p.suffix.lower() in DECK_EXT and not p.name.startswith(("~$", "._"))
                 and " - mended" not in p.name and not SKIP_DIRS & set(rel.parts)
                 and (only is None or rel.match(only))):
+            continue
+        hit = next(((pat, why) for pat, why in rules if fnmatchcase(rel.as_posix().lower(), pat)), None)
+        if hit:
+            skipped.append({"deck": rel.as_posix(), "rule": hit[0], "reason": hit[1]})
+        else:
             decks.append(p)
-    return decks
+    return decks, skipped
 
 
 def tool_version(name: str, args: list[str]) -> str:
@@ -220,9 +238,12 @@ def main():
            "started": dt.datetime.now().isoformat(timespec="seconds"), "decks": []}
     (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
 
-    decks = find_decks(suite, args.only)
+    decks, run["skipped"] = find_decks(suite, args.only)
+    (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
     timeout = args.timeout or (2400 if args.layout else 600)
     print(f"{len(decks)} decks → {run_dir}", flush=True)
+    for s_ in run["skipped"]:
+        print(f"skipped (SKIP.md): {s_['deck']} — {s_['reason']}", flush=True)
     for i, deck in enumerate(decks, 1):
         t = time.time()
         try:

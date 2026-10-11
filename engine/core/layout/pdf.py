@@ -183,7 +183,7 @@ class PdfLayout:
         if slide_number not in self._by_slide:
             self._load()
             from ..content import shape_text
-            svs = [sv for sv in self.deck.iter_shapes() if sv.slide_number == slide_number and sv.text_bearing]
+            svs = [sv for sv in self.deck.slide_shapes(slide_number) if sv.text_bearing]
             shapes = [(sv.shape_id, shape_text(sv.shape).split("\n"),
                        (sv.bounds.left, sv.bounds.top, sv.bounds.right, sv.bounds.bottom) if sv.bounds else None)
                       for sv in svs]

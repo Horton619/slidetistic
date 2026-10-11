@@ -91,9 +91,19 @@ class Deck:
                 child_xf = xf.child_transform(xfrm) if xfrm is not None else xf
                 self._walk(slide_index, shape.shapes, child_xf, depth + 1, out)
 
+    def slide_shapes(self, slide_number: int) -> list[ShapeView]:
+        """iter_shapes() for one slide (1-based). Walking every slide to keep one made layout repair
+        quadratic in slide count: each walk resolves placeholder inheritance through python-pptx."""
+        slides = self.slides
+        if not 1 <= slide_number <= len(slides):
+            return []
+        out: list[ShapeView] = []
+        self._walk(slide_number - 1, slides[slide_number - 1].shapes, Transform(), 0, out)
+        return out
+
     def find_shape(self, slide_number: int, shape_id: int) -> ShapeView | None:
-        for sv in self.iter_shapes():
-            if sv.slide_number == slide_number and sv.shape_id == shape_id:
+        for sv in self.slide_shapes(slide_number):
+            if sv.shape_id == shape_id:
                 return sv
         return None
 

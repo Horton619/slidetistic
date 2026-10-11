@@ -150,6 +150,7 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
             changed = {c.slide for c in edits.changes[first_change:] if c.slide} | {
                 n for n, slide in enumerate(deck.slides, 1)
                 if any(c.part == str(slide.part.partname) for c in edits.changes[first_change:])}
+            problems: dict[int, dict[int, set]] = {}     # id(layout) → slide → problems, one detect() per render
             for n in sorted(changed):
                 pre, post = _health(deck, prefit, n, ctx), _health(deck, final, n, ctx)
                 worse = [label for label, a, b in (("text off the slide", pre.off, post.off),
@@ -159,7 +160,8 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                          if b > a]
                 if worse:
                     _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, ", ".join(worse))
-                elif not (_fit_problems(deck, fitters, prefit, ctx, n) - _fit_problems(deck, fitters, final, ctx, n)):
+                elif not (_fit_problems(deck, fitters, prefit, ctx, n, problems)
+                          - _fit_problems(deck, fitters, final, ctx, n, problems)):
                     # David 2026-10-10 (CLARB 11): six width nudges, orphan still there. A change that fixed
                     # nothing isn't worth a review box; put the slide back without a word.
                     _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None)
@@ -176,11 +178,24 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                           why=f"PowerPoint stopped before this fix could be checked ({e}), so the slide was left as it was")
 
 
-def _fit_problems(deck, fitters, layout, ctx, n) -> set:
-    """The layout problems on slide n according to this render: {(check id, shape id, subject)}."""
-    rctx = replace(ctx, layout=layout)
-    return {(f.check_id, f.shape_id, f.subject) for cls in fitters for f in cls().detect(deck, rctx)
-            if f.slide == n and not f.informational and f.status in PROBLEM}
+def _fit_problems(deck, fitters, layout, ctx, n, cache: dict | None = None) -> set:
+    """The layout problems on slide n according to this render: {(check id, shape id, subject)}.
+
+    With `cache`, every check runs once per render and the result is kept per slide: the safety pass
+    asked again for each changed slide, re-running every check over the whole deck each time (PAT 23,
+    Windows 2026-10-10: 265 of 453 s). A slide's layout findings come from that slide's own shapes and
+    render, and reverting a slide only changes that slide, so the answers are the same."""
+    if cache is None or id(layout) not in cache:
+        rctx = replace(ctx, layout=layout)
+        by_slide: dict[int, set] = {}
+        for cls in fitters:
+            for f in cls().detect(deck, rctx):
+                if not f.informational and f.status in PROBLEM:
+                    by_slide.setdefault(f.slide, set()).add((f.check_id, f.shape_id, f.subject))
+        if cache is None:
+            return by_slide.get(n, set())
+        cache[id(layout)] = by_slide
+    return cache[id(layout)].get(n, set())
 
 
 @dataclass
@@ -205,7 +220,7 @@ def _health(deck, layout, n, ctx) -> _Health:
         for b in items[i + 1:]:
             if any(fit.lines_collide(la, lb, 2 * 12700) for la in a.lines for lb in b.lines):
                 h.collisions += 1
-    shapes = [sv for sv in deck.iter_shapes() if sv.slide_number == n]
+    shapes = deck.slide_shapes(n)
     z = {sv.shape_id: i for i, sv in enumerate(shapes)}
     pics = [(z[sv.shape_id], sv.bounds) for sv in shapes if fit.is_graphic(sv)]
     for sid, st in slide_layout.items():

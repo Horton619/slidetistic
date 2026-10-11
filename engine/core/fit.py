@@ -345,7 +345,7 @@ def is_header(deck, sv, slide_layout) -> bool:
             return 0
         return max((int(el.get("sz")) for el in shape.text_frame._txBody.iter(*RUN_PROPS) if el.get("sz")), default=0)
 
-    texts = [s for s in deck.iter_shapes() if s.slide_number == sv.slide_number and s.text_bearing]
+    texts = [s for s in deck.slide_shapes(sv.slide_number) if s.text_bearing]
     if len([s for s in texts if s.shape_id in slide_layout and slide_layout[s.shape_id].lines]) < 2:
         return False
     top = max(texts, key=lambda s: biggest(s.shape), default=None)

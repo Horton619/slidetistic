@@ -42,6 +42,7 @@ talk through two shared places David already has:
 ```
 SlideTistic Test Suite/
   TEST_DECKS.md            # Mac's human-readable list (exists)
+  SKIP.md                  # decks both runners leave out, one backtick pattern + reason per line
   suite.json               # NEW: machine-readable list: sha256, size, path, expected findings per deck
   <show folders>/...       # the decks: READ ONLY, never write next to them
   _runs/<YYYYMMDD-HHMM>-<mac|win>-<commit7>/
@@ -52,6 +53,13 @@ SlideTistic Test Suite/
   _compare/<runA>__<runB>.md   (+ .html with images side by side)
   _mailbox/<YYYYMMDD-HHMM>-<from>-<subject>.md
 ```
+
+## Skipped decks
+
+`SKIP.md` in the suite folder lists decks that aren't real presentations for this use, as a pattern on the
+deck's path plus the reason. `suite_run.py` leaves them out on both machines and records them in `run.json`
+(`skipped`). First entry (David, 2026-10-10): **lower-thirds graphics decks** (`*lower thirds*`): their text
+sits in the bottom border on purpose, so the layout checks don't apply. Add a line there, not a code change.
 
 ## Deck identity = file hash, not path
 
