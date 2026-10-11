@@ -138,6 +138,23 @@ def run_cli(args: list[str], timeout: float) -> dict:
             "events": events, "stderr": "".join(err)[-1500:]}
 
 
+def write_json(path: Path, data) -> None:
+    """Write via a temp file and rename, retrying: Dropbox briefly locks a file it's syncing, and on
+    Windows rewriting it then fails with EINVAL/EACCES (seen 2026-10-10 on run.json)."""
+    text = json.dumps(data, indent=1, default=str)
+    for attempt in range(20):
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            if attempt == 19:
+                raise
+            time.sleep(0.5)
+
+
 def rows(events: list[dict]) -> list[list]:
     """Same shape as the corpus snapshots: check, status, slide, shape id, subject."""
     return sorted([e["check_id"], e["status"], e.get("slide") or 0, e.get("shape_id") or 0, e.get("subject")]
@@ -202,7 +219,7 @@ def run_deck(deck: Path, suite: Path, run_dir: Path, layout: bool, images: bool,
             for junk in ("prefit.pptx", "report.html"):
                 (review / junk).unlink(missing_ok=True)       # keep the images + review.json only
     (run_dir / "decks").mkdir(parents=True, exist_ok=True)
-    (run_dir / "decks" / f"{key}.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
+    write_json(run_dir / "decks" / f"{key}.json", rec)
     return rec
 
 
@@ -236,10 +253,10 @@ def main():
            "powerpoint": powerpoint_version(),
            "poppler": tool_version("pdftotext", ["-v"]), "ffprobe": tool_version("ffprobe", ["-version"]),
            "started": dt.datetime.now().isoformat(timespec="seconds"), "decks": []}
-    (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
+    write_json(run_dir / "run.json", run)
 
     decks, run["skipped"] = find_decks(suite, args.only)
-    (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
+    write_json(run_dir / "run.json", run)
     timeout = args.timeout or (2400 if args.layout else 600)
     print(f"{len(decks)} decks → {run_dir}", flush=True)
     for s_ in run["skipped"]:
@@ -257,12 +274,12 @@ def main():
                 "second_repair_changes": rec.get("second_repair_changes"), "warnings": rep.get("warnings", [])[:3],
                 "error": rec.get("error")}
         run["decks"].append(line)
-        (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
+        write_json(run_dir / "run.json", run)
         print(f"[{i}/{len(decks)}] {line['seconds']:>7}s exit={line['repair_exit']} timeout={bool(line['timed_out'])} "
               f"{line['counts']} 2nd={line['second_repair_changes']} {('ERR ' + line['error']) if line['error'] else ''}"
               f"{' WARN ' + '; '.join(line['warnings']) if line['warnings'] else ''} {rec['deck']}", flush=True)
     run["finished"] = dt.datetime.now().isoformat(timespec="seconds")
-    (run_dir / "run.json").write_text(json.dumps(run, indent=1), encoding="utf-8")
+    write_json(run_dir / "run.json", run)
     print(f"done: {run_dir}", flush=True)
 
 

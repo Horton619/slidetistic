@@ -133,3 +133,14 @@ def test_hung_powerpoint_call_is_abandoned_not_waited_on(monkeypatch):
     finally:
         stuck.set()
         r.cleanup()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process checks")
+def test_stale_owned_powerpoint_record_is_dropped_without_killing_anything(tmp_path, monkeypatch):
+    # A killed engine leaves a record of the PowerPoint it started; when that process is gone (or the pid
+    # now belongs to something started at a different time) the record is just discarded.
+    record = tmp_path / "owned-powerpoint.json"
+    record.write_text('{"pid": 4000000, "started": 1}', encoding="utf-8")
+    monkeypatch.setattr(render, "OWNED_FILE", record)
+    assert render._close_orphaned_powerpoint() is False
+    assert not record.exists()

@@ -141,6 +141,65 @@ def _has_visible_window(pid: int) -> bool:
     return bool(found)
 
 
+# PowerPoints this engine started, by pid + creation time (a pid alone can be reused). A killed engine (the
+# app stops a scan for a repair, or its stall guard fires) can't quit its PowerPoint, which then stays
+# hidden holding our copy; the next engine can't tell it from the user's, and the user's next PowerPoint
+# launch joins it. The next engine closes it instead: only that exact process, only with no visible window.
+OWNED_FILE = Path(tempfile.gettempdir()) / "slidetistic" / "owned-powerpoint.json"
+
+
+def _process_started(pid: int) -> int | None:
+    import win32api
+    import win32con
+    import win32process
+    try:
+        h = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        try:
+            return int(win32process.GetProcessTimes(h)["CreationTime"].timestamp())
+        finally:
+            win32api.CloseHandle(h)
+    except Exception:
+        return None
+
+
+def _remember_owned(pid: int | None) -> None:
+    import json
+    try:
+        if pid is None:
+            OWNED_FILE.unlink(missing_ok=True)
+        else:
+            OWNED_FILE.parent.mkdir(parents=True, exist_ok=True)
+            OWNED_FILE.write_text(json.dumps({"pid": pid, "started": _process_started(pid)}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _close_orphaned_powerpoint() -> bool:
+    """Kill the PowerPoint a previous, killed engine started, if it is still that process and nobody is
+    using it. True when one was closed."""
+    import json
+    try:
+        rec = json.loads(OWNED_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    pid, started = rec.get("pid"), rec.get("started")
+    closed = False
+    if (pid in _powerpoint_pids() and started is not None and _process_started(pid) == started
+            and not _has_visible_window(pid)):
+        import win32api
+        import win32con
+        try:
+            h = win32api.OpenProcess(win32con.PROCESS_TERMINATE, False, pid)
+            win32api.TerminateProcess(h, 1)
+            win32api.CloseHandle(h)
+            closed = True
+        except Exception:
+            pass
+    if closed or pid not in _powerpoint_pids():
+        _remember_owned(None)
+    return closed
+
+
 def _com_message(e: Exception) -> str:
     info = getattr(e, "excepinfo", None)
     text = (info[2] if info and len(info) > 2 and info[2] else None) or str(e)
@@ -234,6 +293,9 @@ class WindowsPowerPointRenderer(_Renderer):
                 return self._app
             except pywintypes.com_error:
                 self._app, self._own_pid = None, None
+        if _close_orphaned_powerpoint():
+            import time
+            time.sleep(1)                    # let Windows drop its COM registration before we dispatch
         before = _powerpoint_pids()
         try:
             self._app = win32com.client.DispatchEx("PowerPoint.Application")
@@ -241,6 +303,8 @@ class WindowsPowerPointRenderer(_Renderer):
             raise RenderError(f"PowerPoint couldn't be started: {_com_message(e)}") from e
         new = _powerpoint_pids() - before
         self._own_pid = next(iter(new)) if len(new) == 1 else None
+        if self._own_pid:
+            _remember_owned(self._own_pid)
         return self._app
 
     def _on_hang(self):
@@ -294,6 +358,7 @@ class WindowsPowerPointRenderer(_Renderer):
                 try:
                     if app.Presentations.Count == 0:
                         app.Quit()
+                        _remember_owned(None)
                 except pywintypes.com_error:
                     pass
         if self._jobs is not None and not WindowsPowerPointRenderer.broken:

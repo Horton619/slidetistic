@@ -92,6 +92,9 @@ POWERPNT.EXE process we started, when no other deck or visible window is in it. 
   negative coordinates and cut words ("cuatro" → "ro"). A clipped word counts as not drawn.
 - The COM object has no `HWND`; which PowerPoint is ours = the process that appeared on dispatch.
 - Decode subprocess output as UTF-8 explicitly; Windows defaults to cp1252.
+- A killed engine leaves its PowerPoint running hidden. The renderer records the PowerPoint it started
+  (`%TEMP%/slidetistic/owned-powerpoint.json`, pid + start time) and the next engine closes that exact
+  process if it has no visible window. All COM calls run on one daemon thread with a time limit.
 - Releasing the last COM handle after PowerPoint quits raises a handled `0x80010108`; pytest's fault
   handler prints it as "Windows fatal exception". Harmless.
 
