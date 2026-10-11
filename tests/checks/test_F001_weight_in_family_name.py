@@ -42,3 +42,14 @@ def test_f001_extra_bold_is_not_bold(tmp_path):
     assert statuses(run_scan(src, "F001"), "F001") == {}
     assert set(statuses(run_scan(src, "F003", crew=["Tilda Sans", "DIN 2014 Narrow"]), "F003")) == {
         "Tilda Sans Extra Bold", "DIN 2014 Narrow Semi Bold"}
+
+
+def test_f001_doubled_style_word_fixed_in_one_repair(tmp_path):
+    # AACS corpus 2026-10-10 (Canva export): 'Barlow Bold Bold' took two repairs (→ 'Barlow Bold' → 'Barlow').
+    src = make_deck(tmp_path, text_box("A", font="Barlow Bold Bold"), text_box("B", font="Barlow"))
+    result = run_repair(src, "F001")
+    assert statuses(result, "F001") == {"Barlow Bold Bold": Status.GREEN_FIXED}
+    assert slide_runs(result.output_path) == [("Barlow", "1"), ("Barlow", None)]
+    again = result.output_path.with_name("again.pptx")
+    result.output_path.replace(again)
+    assert run_repair(again, "F001").changes == []

@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 
 const isMac = process.platform === 'darwin';
 let mainWindow = null;
@@ -71,9 +71,24 @@ function engineCommand(args) {
 const jobs = [];
 let running = null;
 
+// A job that reports nothing for this long is stuck (a hung network read was seen on Windows); it is
+// stopped and the queue moves on. Longer than the renderer's own 300 s PowerPoint timeout, since a
+// scan's render runs inside one check step with no events.
+const STALL_MS = { scan: 6 * 60e3, repair: 10 * 60e3, undo: 10 * 60e3 };
+
+// Jobs the user clicked (repair, undo) go ahead of queued scans, in click order, and stop a running
+// scan, which goes back to the front of the scans. Repair is only offered on a scanned deck, so it
+// never jumps its own deck's scan. A scan that is mid-render is left to finish: killing the engine
+// then would leave its hidden copy open in PowerPoint.
 function enqueue(job) {
-  jobs.push(job);
+  const firstScan = job.kind === 'scan' ? -1 : jobs.findIndex((j) => j.kind === 'scan');
+  if (firstScan < 0) jobs.push(job); else jobs.splice(firstScan, 0, job);
   send('engine:event', { jobId: job.id, deckId: job.deckId, type: 'queued', kind: job.kind });
+  if (job.kind !== 'scan' && running && running.kind === 'scan' && running.child
+      && running.stage !== 'render' && !running.preempted) {
+    running.preempted = true;
+    running.child.kill();
+  }
   pump();
 }
 
@@ -86,9 +101,17 @@ function pump() {
   send('engine:event', { jobId: job.id, deckId: job.deckId, type: 'started', kind: job.kind });
   const child = spawn(cmd, args, { cwd, env });
   job.child = child;
+  let stalled = false;
+  let watchdog;
+  const alive = () => {
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => { stalled = true; child.kill(); }, STALL_MS[job.kind] || STALL_MS.repair);
+  };
+  alive();
   let buf = '';
   let stderr = '';
   child.stdout.on('data', (d) => {
+    alive();
     buf += d.toString();
     let i;
     while ((i = buf.indexOf('\n')) >= 0) {
@@ -98,12 +121,33 @@ function pump() {
       try {
         const ev = JSON.parse(line);
         if (ev.type === 'error' || ev.type === 'warn') log(ev.type, job.kind, ev.message || '');
+        if (ev.type === 'progress') job.stage = ev.stage;
         send('engine:event', { jobId: job.id, deckId: job.deckId, kind: job.kind, ...ev });
       } catch (_) { /* partial or non-JSON line */ }
     }
   });
-  child.stderr.on('data', (d) => { stderr += d.toString(); });
+  child.stderr.on('data', (d) => { alive(); stderr += d.toString(); });
   child.on('close', (code) => {
+    clearTimeout(watchdog);
+    running = null;
+    if (job.preempted && !job.cancelled) {
+      // Stopped for a repair: run it again first among the scans. The card stays "waiting".
+      log('info', 'engine', 'scan paused for a repair', job.deckId);
+      const again = { id: job.id, deckId: job.deckId, kind: 'scan', args: job.args };
+      const firstScan = jobs.findIndex((j) => j.kind === 'scan');
+      if (firstScan < 0) jobs.push(again); else jobs.splice(firstScan, 0, again);
+      send('engine:event', { jobId: job.id, deckId: job.deckId, kind: 'scan', type: 'requeued' });
+      pump();
+      return;
+    }
+    if (stalled && !job.cancelled) {
+      const mins = Math.round((STALL_MS[job.kind] || STALL_MS.repair) / 60e3);
+      const message = `Stopped: no progress for ${mins} minutes. The file may be on a slow or unreachable drive; `
+        + 'copy it to this computer and try again.';
+      log('error', job.kind, 'stalled', job.deckId, job.args[1] || '');
+      send('engine:event', { jobId: job.id, deckId: job.deckId, kind: job.kind, type: 'error', message });
+      code = code || 1;
+    }
     if (code && stderr) log('error', job.kind, stderr.slice(-2000));
     send('engine:event', {
       jobId: job.id, deckId: job.deckId, kind: job.kind, type: 'done', code,
@@ -279,8 +323,30 @@ ipcMain.handle('shell:openExternal', (_e, url) => {
 });
 
 // Open a deck in PowerPoint at a given slide.
+// Windows: open in the user's PowerPoint (visible, stays open) and jump to the slide. Only the
+// presentation our Open returned is touched; the path travels in an env var, never inside the script.
+const WIN_OPEN_AT_SLIDE = [
+  '$ErrorActionPreference = "Stop"',
+  '$app = New-Object -ComObject PowerPoint.Application',
+  '$app.Visible = -1',
+  '$p = $app.Presentations.Open($env:ST_FILE)',
+  'if ($p.FullName -ne $env:ST_FILE) { throw "PowerPoint opened a different file" }',
+  '$w = $p.Windows.Item(1)',
+  '$w.View.GotoSlide([int]$env:ST_SLIDE)',
+  '$w.Activate()',
+].join('; ');
+
 ipcMain.handle('ppt:openAtSlide', (_e, file, slide) => new Promise((resolve) => {
-  if (!isMac) { shell.openPath(file).then(() => resolve({ ok: true, note: 'Opened; jump to the slide by hand on Windows for now.' })); return; }
+  if (!isMac) {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN_AT_SLIDE],
+      { env: { ...process.env, ST_FILE: path.resolve(file), ST_SLIDE: String(Number(slide) || 1) }, timeout: 60000 },
+      (err) => {
+        if (!err) { resolve({ ok: true }); return; }
+        log('warn', 'openAtSlide', err.message);
+        shell.openPath(file).then(() => resolve({ ok: true, note: 'Opened; jump to the slide by hand.' }));
+      });
+    return;
+  }
   const script = `
     tell application "Microsoft PowerPoint"
       activate
@@ -293,9 +359,18 @@ ipcMain.handle('ppt:openAtSlide', (_e, file, slide) => new Promise((resolve) => 
   execFile('osascript', ['-e', script], (err) => resolve(err ? { ok: false, error: err.message } : { ok: true }));
 }));
 
+// Windows: the same registry key the engine's renderer checks (PowerPoint.Application registered for COM).
+function windowsHasPowerPoint() {
+  try {
+    execFileSync('reg', ['query', 'HKCR\\PowerPoint.Application\\CLSID'], { stdio: 'ignore', timeout: 10000 });
+    return true;
+  } catch (_) { return false; }
+}
+
 ipcMain.handle('app:info', () => ({
   version: app.getVersion(), platform: process.platform, logFile: logFile(),
-  powerpoint: isMac ? fs.existsSync('/Applications/Microsoft PowerPoint.app') : null,
+  powerpoint: isMac ? fs.existsSync('/Applications/Microsoft PowerPoint.app')
+    : process.platform === 'win32' ? windowsHasPowerPoint() : null,
 }));
 
 ipcMain.handle('app:openSlideFluid', () => {

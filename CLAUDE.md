@@ -61,9 +61,11 @@ The pattern from memory is not good enough; detectors must match saved files fro
 ## Commands
 
 Always use the project venv (`venv/`, Python 3.11 to match CI), never system `python3`.
+On Windows (Git Bash) the venv is `venv/Scripts/python`, and the engine needs `export SLIDETISTIC_TOOLS="$PWD/vendor/win"`.
 
 ```
 venv/bin/python -m pytest                      # unit + contract tests (fast, always)
+venv/bin/python -m pytest -m powerpoint        # drives real PowerPoint (Mac or Windows; never in CI)
 venv/bin/python -m pytest -m corpus            # snapshot tests on real decks (local)
 venv/bin/python -m pytest -m corpus --update-snapshots   # only after David accepts the diff
 venv/bin/python -m engine.cli list-checks --json
@@ -79,6 +81,19 @@ AppleScript. Working copies get unique names (`slidetistic-<uuid>-<label>.pptx`)
 takes the *active* presentation and confirms its full path before exporting/closing. Never address a
 presentation by name, and never enumerate David's open presentations: a name clash once closed his deck.
 AppleScript gotcha: `out` is a reserved word in PowerPoint's dictionary; `whose` filters aren't supported.
+
+**Windows renderer** (`WindowsPowerPointRenderer`, COM via pywin32): opens a copy with
+`Presentations.Open(copy, ReadOnly, WithWindow=False)`, confirms `FullName` is the copy, `SaveAs(pdf, 32)`,
+closes it. Callers only use `render.PowerPointRenderer` (the platform switch). ~1 s per export, ~3 s once to
+start PowerPoint. PowerPoint is single-instance: if David's PowerPoint is open, the hidden copy opens in it,
+so never use `ActivePresentation`, never enumerate `Presentations`, and only quit (or kill after a hang) the
+POWERPNT.EXE process we started, when no other deck or visible window is in it. Windows gotchas:
+- **The PDF keeps off-slide text** (the Mac leaves it out); pdftotext clips at the page edge, so expect
+  negative coordinates and cut words ("cuatro" → "ro"). A clipped word counts as not drawn.
+- The COM object has no `HWND`; which PowerPoint is ours = the process that appeared on dispatch.
+- Decode subprocess output as UTF-8 explicitly; Windows defaults to cp1252.
+- Releasing the last COM handle after PowerPoint quits raises a handled `0x80010108`; pytest's fault
+  handler prints it as "Windows fatal exception". Harmless.
 
 **Corpus:** the real-deck folder is read from `--corpus`, `$SLIDETISTIC_CORPUS`, or the git-ignored
 `.corpus-path` file: the shared suite in `Dropbox/SlideTistic Test Suite/` (32 decks, same on Mac and PC; its `TEST_DECKS.md` says what each should trigger; never copy it into git). Snapshots live in the git-ignored `corpus/snapshots/`.

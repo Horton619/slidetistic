@@ -149,6 +149,7 @@ async function onEngineEvent(ev) {
     renderBusyOnly(deck);
     return;
   }
+  if (ev.type === 'requeued') { deck.stage = 'Waiting: a repair went first'; deck.progress = null; renderBusyOnly(deck); return; }
   if (ev.type === 'error') { deck.error = ev.message; return; }
   if (ev.type === 'warn') { toast(ev.message); return; }
   if (ev.type === 'undone') {

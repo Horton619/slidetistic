@@ -534,3 +534,20 @@ David reviewed the first layout report: the problems were flagged but not fixed 
 - **Final safety pass:** after the fit rounds, PowerPoint renders the result once more. Any slide now worse than before the layout fixes (text off the slide, text over text, words hidden behind an image, a header with more lines) is put back exactly as it was and reported ("undone by the final safety check"). **Text may never go off a slide.**
 - **An unfinished fix keeps the finding's own severity.** A title still near the edge is "look at", not "broken". Red is for what the check itself calls red.
 - **PAT:** 58 fixed, 0 still broken; the safety pass restored slide 18 when an intermediate fix hid words behind the illustration.
+
+### 2026-10-10 (night): Windows PowerPoint renderer (built on David's PC)
+
+- **Layout fixes, the visual review and drawn-word off-slide checks now run on Windows.** `engine/render.py`
+  has `MacPowerPointRenderer` and `WindowsPowerPointRenderer`; `PowerPointRenderer` is the platform switch,
+  so the runner and CLI didn't change. Windows uses COM (pywin32): open a copy read-only and windowless,
+  `SaveAs` PDF, close. Then the same Poppler path as the Mac (Poppler for Windows bundled in CI, hash-pinned).
+- **Measured on the PC (PowerPoint 16, 64-bit):** hidden slides are left out of the PDF (as on the Mac);
+  page size = slide size exactly; ~1 s per export, ~3 s once to start PowerPoint; a 6-slide repair with
+  layout fixes and visual review takes 5–11 s.
+- **Difference from the Mac:** Windows PowerPoint keeps off-slide text in the PDF. pdftotext clips it at the
+  page edge, so "words drawn" means the same on both platforms once negative coordinates are parsed.
+- **Safety:** only the presentation our own `Open` returned is touched; PowerPoint is quit (or killed after
+  a 300 s hang) only if we started it and nothing of the user's is open in it.
+- **App queue (David):** a clicked Repair stops the running scan and starts immediately; the scan re-runs
+  next. A job with no progress for 6 min (scan) or 10 min (repair) is stopped with a plain red card, so
+  one unreadable deck can't freeze the queue. "Open in PowerPoint at this slide" works on Windows.

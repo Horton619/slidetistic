@@ -252,7 +252,7 @@ def _probe_blob(partname: str, size: int, blob: bytes) -> dict | None:
         path.write_bytes(blob)
         try:
             out = subprocess.run([ffprobe_path(), "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)],
-                                 capture_output=True, text=True, timeout=60)
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
             data = json.loads(out.stdout or "{}")
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
             data = {}

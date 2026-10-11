@@ -73,7 +73,17 @@ def split_style(name: str) -> tuple[str, bool, bool] | None:
 
     'Tilda Sans Extra Bold' is NOT 'Tilda Sans Extra' + bold (Dropbox corpus 2026-10-09): a weight
     modifier before Bold makes it a weight PowerPoint can't switch to (F003's job).
+    Repeated style words are all stripped: 'Barlow Bold Bold' → ('Barlow', True, False) (AACS corpus,
+    2026-10-10: one word per pass took two repairs).
     """
+    base, bold, italic = name, False, False
+    while (step := _split_one_style(base)) is not None:
+        base, b, i = step
+        bold, italic = bold or b, italic or i
+    return (base, bold, italic) if base != name else None
+
+
+def _split_one_style(name: str) -> tuple[str, bool, bool] | None:
     modifiers = {m.casefold() for m in rules.load("weight_suffixes").get("modifiers", [])}
     for entry in rules.load("weight_suffixes")["fixable"]:
         suffix = " " + entry["suffix"]

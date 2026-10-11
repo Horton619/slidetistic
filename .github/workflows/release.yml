@@ -11,6 +11,8 @@ permissions:
 
 env:
   FFMPEG_TAG: n7.1.2
+  POPPLER_WIN_TAG: v24.08.0-0
+  POPPLER_WIN_SHA256: 58a6f9ae269756231d2f9aa6cba39d75fec6deacaf3c4a50683383b5f3d5a527
 
 jobs:
   # ---------------------------------------------------------------------------------------------
@@ -115,6 +117,20 @@ jobs:
         run: |
           bash scripts/build_ffprobe.sh
           objdump -p vendor/win/ffprobe.exe | grep "DLL Name"
+
+      # The Windows PowerPoint renderer (engine/render.py) needs pdftotext + pdftoppm. Same build as
+      # SlideFluid's workflow; hash pinned to the zip verified on David's PC (2026-10-10).
+      - name: Bundle Poppler (pdftotext, pdftoppm)
+        shell: bash
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/poppler.zip" \
+            "https://github.com/oschwartz10612/poppler-windows/releases/download/${POPPLER_WIN_TAG}/Release-${POPPLER_WIN_TAG#v}.zip"
+          echo "${POPPLER_WIN_SHA256}  $RUNNER_TEMP/poppler.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/poppler.zip" -d "$RUNNER_TEMP/poppler"
+          bin=$(echo "$RUNNER_TEMP"/poppler/*/Library/bin)
+          mkdir -p vendor/win
+          cp "$bin/pdftotext.exe" "$bin/pdftoppm.exe" "$bin"/*.dll vendor/win/
+          vendor/win/pdftotext.exe -v
 
       - name: Tests
         env: { SLIDETISTIC_TOOLS: vendor/win }

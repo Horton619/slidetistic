@@ -83,6 +83,13 @@ rather than forcing them to match. Make sure Dropbox has the folder fully downlo
 
 ## Brief: Windows PowerPoint renderer
 
+> **Status (PC, 2026-10-10 night): built.** `WindowsPowerPointRenderer` in `engine/render.py`, app wiring
+> (`app:info`, open-at-slide), CI Poppler step, `tests/test_render.py` (`-m powerpoint` for the real run).
+> Verified on the PC: checks 1, 3, 4 below, and check 2 on a generated deck (off-left box 0/5 drawn,
+> half-off 4/8; Windows keeps off-slide text in the PDF, see CLAUDE.md). A PyInstaller build renders.
+> **Still open:** check 2 on `broken_mac.pptx` (slides 18/19/20) and check 5 (PAT end to end): both decks
+> need copying to the PC's `corpus/`. Not yet released (0.4.1 ships after this, David's call).
+
 **Goal:** on Windows with PowerPoint installed, the engine renders decks exactly as it does on the Mac,
 so layout fixes, the visual review (before/after slide pictures) and drawn-word off-slide checks all work.
 Everything downstream already exists and is platform-neutral: it only needs a PDF of the deck.

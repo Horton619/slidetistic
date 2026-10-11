@@ -75,10 +75,13 @@ def parse_bbox_html(text: str) -> dict[int, list[Line]]:
         lines = []
         for block in re.findall(r"<block\b.*?</block>", page, re.S) or [page]:
             block_id += 1
+            # Coordinates can be negative: Windows PowerPoint keeps off-slide text in the PDF, so a line
+            # that starts past the left/top edge does too (pdftotext clips its words at the page edge).
             for xm, ym, xM, yM, body in re.findall(
-                    r'<line xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</line>', block, re.S):
+                    r'<line xMin="(-?[\d.]+)" yMin="(-?[\d.]+)" xMax="(-?[\d.]+)" yMax="(-?[\d.]+)">(.*?)</line>', block, re.S):
                 boxes = [Word(html.unescape(t), float(wx) * EMU_PER_PT, float(wX) * EMU_PER_PT)
-                         for wx, wX, t in re.findall(r'<word xMin="([\d.]+)" yMin="[\d.]+" xMax="([\d.]+)" yMax="[\d.]+">([^<]+)</word>', body)]
+                         for wx, wX, t in re.findall(
+                             r'<word xMin="(-?[\d.]+)" yMin="-?[\d.]+" xMax="(-?[\d.]+)" yMax="-?[\d.]+">([^<]+)</word>', body)]
                 lines.append(Line(float(xm) * EMU_PER_PT, float(ym) * EMU_PER_PT, float(xM) * EMU_PER_PT,
                                   float(yM) * EMU_PER_PT, [b.text for b in boxes], boxes, block_id))
         pages[n] = lines
@@ -166,7 +169,8 @@ class PdfLayout:
         from ..content import is_hidden
         pdf = self.renderer.to_pdf(self.path or self.deck.path, "layout")
         out = subprocess.run([tools.find("pdftotext") or "pdftotext", "-bbox-layout", str(pdf), "-"],
-                             capture_output=True, text=True, timeout=300, check=True).stdout
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                             check=True).stdout
         pages = parse_bbox_html(out)
         self._pages, page = {}, 0
         for n, slide in enumerate(self.deck.slides, 1):
