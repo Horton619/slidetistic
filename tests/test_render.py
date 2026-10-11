@@ -158,3 +158,33 @@ def test_powerpoint_of_a_live_engine_is_never_treated_as_orphaned(tmp_path, monk
     monkeypatch.setattr(render, "OWNED_FILE", record)
     assert render._close_orphaned_powerpoint() is False
     assert record.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="pywintypes is Windows-only")
+def test_busy_powerpoint_calls_are_retried_but_real_errors_are_not():
+    # PC suite 2026-10-10: PowerPoint rejected pres.Close() while busy; win32com raised AttributeError("Open.Close").
+    import pywintypes
+    tries = []
+
+    def busy_twice():
+        tries.append(1)
+        if len(tries) < 3:
+            raise AttributeError("Open.Close")
+        return "done"
+    assert render._when_free(busy_twice, wait=5) == "done" and len(tries) == 3
+
+    def broken():
+        raise pywintypes.com_error(-2147352567, "Exception occurred.", (0, "PowerPoint", "Bad file", None, 0, 0), None)
+    with pytest.raises(pywintypes.com_error):
+        render._when_free(broken, wait=5)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the COM thread needs pywin32")
+def test_unexpected_powerpoint_error_becomes_a_render_error(monkeypatch):
+    r = render.WindowsPowerPointRenderer()
+    monkeypatch.setattr(render.WindowsPowerPointRenderer, "broken", None)
+    try:
+        with pytest.raises(render.RenderError, match="PowerPoint error: KeyError"):
+            r._call(lambda: {}["x"], 5)
+    finally:
+        r.cleanup()

@@ -206,6 +206,29 @@ def _close_orphaned_powerpoint() -> bool:
     return closed
 
 
+# PowerPoint refuses calls while it's busy (finishing an export, closing a big deck, or serving another
+# client): RPC_E_CALL_REJECTED / RPC_E_SERVERCALL_RETRYLATER. win32com's late binding reports the same thing
+# as AttributeError("Open.Close") when it can't look the method up. A rejected call never ran, so retrying
+# is safe (PC suite run 2026-10-10 failed a repair on "Open.Close" after the safety pass).
+_BUSY = {-2147418111, -2147417846}
+
+
+def _when_free(call, *args, wait: float = 30.0):
+    """Run one PowerPoint COM call, retrying while PowerPoint says it's busy."""
+    import time
+    import pywintypes
+    deadline, delay = time.monotonic() + wait, 0.1
+    while True:
+        try:
+            return call(*args)
+        except (pywintypes.com_error, AttributeError) as e:
+            busy = isinstance(e, AttributeError) or getattr(e, "hresult", None) in _BUSY
+            if not busy or time.monotonic() > deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 2.0)
+
+
 def _com_message(e: Exception) -> str:
     info = getattr(e, "excepinfo", None)
     text = (info[2] if info and len(info) > 2 and info[2] else None) or str(e)
@@ -274,7 +297,12 @@ class WindowsPowerPointRenderer(_Renderer):
             self._app, self._own_pid = None, None
             raise RenderError(f"PowerPoint stopped responding (over {int(timeout)} s) and was closed")
         if "error" in box:
-            raise box["error"]
+            e = box["error"]
+            if isinstance(e, RenderError):
+                raise e
+            # Anything else from PowerPoint must not crash the repair: callers handle RenderError
+            # (layout skipped, other fixes kept).
+            raise RenderError(f"PowerPoint error: {type(e).__name__}: {_com_message(e)}") from e
         return box.get("value")
 
     @staticmethod
@@ -295,9 +323,9 @@ class WindowsPowerPointRenderer(_Renderer):
         import win32com.client
         if self._app is not None:
             try:
-                self._app.Version            # still alive? (it may have been quit or killed)
+                _when_free(lambda: self._app.Version, wait=10)   # still alive? (it may have been quit or killed)
                 return self._app
-            except pywintypes.com_error:
+            except (pywintypes.com_error, AttributeError):
                 self._app, self._own_pid = None, None
         if _close_orphaned_powerpoint():
             import time
@@ -336,20 +364,21 @@ class WindowsPowerPointRenderer(_Renderer):
             import pywintypes
             app = self._powerpoint()
             try:
-                pres = app.Presentations.Open(str(src), True, False, False)   # ReadOnly, Untitled, WithWindow
-            except pywintypes.com_error as e:
+                # ReadOnly, Untitled, WithWindow
+                pres = _when_free(lambda: app.Presentations.Open(str(src), True, False, False))
+            except (pywintypes.com_error, AttributeError) as e:
                 raise RenderError(f"PowerPoint couldn't open {pptx.name}: {_com_message(e)}") from e
-            if not os.path.samefile(pres.FullName, src):
+            if not os.path.samefile(_when_free(lambda: pres.FullName), src):
                 raise RenderError("PowerPoint returned a different presentation than SlideTistic's copy")
             try:
-                pres.SaveAs(str(pdf), PP_SAVE_AS_PDF)
-            except pywintypes.com_error as e:
+                _when_free(lambda: pres.SaveAs(str(pdf), PP_SAVE_AS_PDF))
+            except (pywintypes.com_error, AttributeError) as e:
                 raise RenderError(f"PowerPoint couldn't export {pptx.name}: {_com_message(e)}") from e
             finally:
                 try:
-                    pres.Close()
-                except pywintypes.com_error:
-                    pass
+                    _when_free(lambda: pres.Close())
+                except (pywintypes.com_error, AttributeError):
+                    pass                        # the PDF is written; a copy left open is closed with PowerPoint
 
         self._call(export, self.timeout)
         if not pdf.exists():
@@ -362,10 +391,10 @@ class WindowsPowerPointRenderer(_Renderer):
             app, self._app = self._app, None
             if app is not None and self._own_pid:
                 try:
-                    if app.Presentations.Count == 0:
-                        app.Quit()
+                    if _when_free(lambda: app.Presentations.Count, wait=10) == 0:
+                        _when_free(lambda: app.Quit(), wait=10)
                         _remember_owned(None)
-                except pywintypes.com_error:
+                except (pywintypes.com_error, AttributeError):
                     pass
         if self._jobs is not None and not WindowsPowerPointRenderer.broken:
             try:
