@@ -81,12 +81,27 @@ def main(argv=None) -> int:
         return 0
 
     if args.cmd == "cleanup":
+        from .keynote import purge_cache
         from .render import purge_leftovers
-        freed = purge_leftovers(everything=args.all)
+        freed = purge_leftovers(everything=args.all) + purge_cache(everything=args.all)
         print(json.dumps({"type": "cleanup", "freed_bytes": freed}) if args.json else f"Freed {freed / 1e6:.1f} MB")
         return 0
 
     path = Path(args.file)
+    emit = (lambda e: print(json.dumps(e, default=str), flush=True)) if args.json else (lambda e: None)
+    converted_from = None
+    if path.suffix.lower() == ".key" and args.cmd in ("scan", "repair", "media"):
+        # Keynote: Keynote itself exports a .pptx (Mac only), then everything below runs on that.
+        from . import keynote
+        emit({"type": "progress", "stage": "convert"})
+        try:
+            converted_from, path = path, keynote.convert(path)
+        except keynote.KeynoteError as e:
+            _fail(args.json, str(e))
+            return 2
+        if args.cmd == "repair" and not getattr(args, "out", None):
+            args.out = str(converted_from.with_name(converted_from.stem + " - mended.pptx"))
+        emit({"type": "converted", "from": str(converted_from), "app": (keynote.keynote_app() or ("", ""))[1]})
     if path.suffix.lower() != ".pptx":
         _fail(args.json, f"Only .pptx files can be checked (got {path.suffix or 'no extension'}).")
         return 2
@@ -95,6 +110,7 @@ def main(argv=None) -> int:
         _fail(args.json, problem)
         return 2
 
+    args.converted_from = str(converted_from) if converted_from else None
     if args.cmd == "media":
         return _media(path, checks, args)
     if args.cmd == "undo-slide":
@@ -159,7 +175,8 @@ def _write_report(result, checks, config, args, emit) -> Path | None:
         ok, why = PowerPointRenderer.available()
         if ok:
             if review_dir:      # findings first: the app shows them while PowerPoint draws the slides
-                path = bundle.write(result, checks, config, review_dir, prefit=config.prefit_path, pending=True)
+                path = bundle.write(result, checks, config, review_dir, prefit=config.prefit_path, pending=True,
+                                    converted_from=getattr(args, "converted_from", None))
                 emit({"type": "review", "path": str(path), "partial": True})
             emit({"type": "progress", "stage": "render"})
             # The layout pass's renderer still holds this job's PDFs (runner.cleanup() runs after the
@@ -180,7 +197,7 @@ def _write_report(result, checks, config, args, emit) -> Path | None:
         note = "Visual review turned off."
     if review_dir:
         path = bundle.write(result, checks, config, review_dir, visuals=visuals, note=note,
-                            prefit=config.prefit_path)
+                            prefit=config.prefit_path, converted_from=getattr(args, "converted_from", None))
         emit({"type": "review", "path": str(path)})
     if not want_html:
         return None

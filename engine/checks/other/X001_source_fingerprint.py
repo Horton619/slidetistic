@@ -30,6 +30,10 @@ class SourceFingerprint(Check):
         app = (deck.prs.core_properties.title or "", _app_name(deck))
         if "keynote" in app[1].lower():
             signals["keynote"].append(f"saved by {app[1]}")
+        layouts = {lay.name for m in deck.prs.slide_masters for lay in m.slide_layouts}
+        keynote_names = sorted(layouts & set(rules.load("keynote_layouts")))
+        if len(keynote_names) >= 2:     # Creator Studio leaves app.xml empty; its layout names survive the export
+            signals["keynote"].append(f"Keynote layout names ({', '.join(repr(n) for n in keynote_names[:3])})")
         slides = deck.slides
         full_pics = sum(1 for n in range(1, len(slides) + 1)
                         if _one_full_picture(deck, [sv for sv in shapes if sv.slide_number == n]))

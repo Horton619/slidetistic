@@ -13,7 +13,7 @@ from . import __version__, export, visual
 
 
 def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = "", prefit: Path | None = None,
-          pending: bool = False) -> Path:
+          pending: bool = False, converted_from: str | None = None) -> Path:
     """`pending`: findings are final but the slide pictures are still being drawn (the app shows the
     findings straight away and the pictures when the full bundle follows)."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -31,6 +31,7 @@ def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = ""
         "changes": [c.to_dict() for c in result.changes],
         "visual_note": note,
         "visuals_pending": pending,
+        "converted_from": converted_from,       # the .key file this deck was converted from
         "visuals": [dict(asdict(v), tier=v.tier, tier_label=visual.TIERS[v.tier]) for v in (visuals or [])],
         "kinds": visual.KIND_LABEL,
         "inventory": export.inventory_rows(result.findings),

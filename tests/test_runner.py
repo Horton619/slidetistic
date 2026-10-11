@@ -60,10 +60,28 @@ def test_cli_list_checks_json(capsys):
 
 
 def test_cli_rejects_non_pptx(tmp_path, capsys):
+    odp = tmp_path / "talk.odp"
+    odp.write_bytes(b"")
+    assert cli.main(["scan", str(odp), "--json"]) == 2
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["type"] == "error"
+
+
+def test_cli_rejects_a_damaged_keynote_file_without_launching_keynote(tmp_path, capsys, monkeypatch):
+    import subprocess
+    from engine import keynote
+    monkeypatch.setattr(keynote, "keynote_app", lambda: ("com.apple.Keynote", "Keynote Creator Studio"))
+    monkeypatch.setattr(keynote, "unavailable_reason", lambda: None)
+    real_run = subprocess.run
+
+    def no_osascript(cmd, *a, **kw):
+        assert cmd[0] != "osascript", "Keynote must not be launched for a damaged file"
+        return real_run(cmd, *a, **kw)
+    monkeypatch.setattr(keynote.subprocess, "run", no_osascript)
     key = tmp_path / "talk.key"
     key.write_bytes(b"")
     assert cli.main(["scan", str(key), "--json"]) == 2
-    assert json.loads(capsys.readouterr().out)["type"] == "error"
+    err = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert err["type"] == "error" and "isn't a valid Keynote file" in err["message"]
 
 
 def test_cli_explains_folder_named_pptx(tmp_path, capsys):

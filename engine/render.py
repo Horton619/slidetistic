@@ -109,7 +109,8 @@ class _render_lock:
 
 def _work_roots() -> list[Path]:
     """Where renderers keep their per-job folders (Mac: PowerPoint's sandbox; Windows: temp)."""
-    return [CONTAINER_TMP, Path(tempfile.gettempdir()) / "slidetistic"]
+    keynote = [Path.home() / "Library/Containers" / b / "Data/tmp/slidetistic" for b in ("com.apple.Keynote", "com.apple.iWork.Keynote")]
+    return [CONTAINER_TMP, Path(tempfile.gettempdir()) / "slidetistic", *keynote]
 
 
 def purge_leftovers(max_age_hours: float = 6.0, everything: bool = False) -> int:

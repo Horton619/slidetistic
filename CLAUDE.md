@@ -126,6 +126,11 @@ to David; only run `--update-snapshots` after he accepts it.
   by `render.content_key` (zip directory, media by name only).
 - **Mac renderer:** one export at a time across processes (`_render_lock`), hidden PowerPoint by default
   (`--powerpoint-visible`), hang recovery that never touches David's decks (count + our unique names only).
+- **Keynote** (`engine/keynote.py`, Mac only): `.key` → `.pptx` by Keynote itself (Creator Studio
+  `com.apple.Keynote` first, classic `com.apple.iWork.Keynote` fallback), copy in Keynote's sandbox, path
+  confirmed, cached in `~/Library/Caches/SlideTistic/keynote`. Keynote stays visible (its prompts block
+  conversion and must be answerable). Classic 14.5 nags on every launch; Creator Studio needs its welcome
+  screen clicked through once. Windows: plain "convert on a Mac" message.
 - **Temp files:** `cli cleanup [--all]`; renderers purge leftovers over 6 h; the app clears review bundles at
   launch and when a deck leaves the queue.
 

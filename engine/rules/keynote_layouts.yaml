@@ -1,0 +1,14 @@
+# X001: slide-layout names Keynote's built-in themes use; they survive "Export To ▸ PowerPoint", while
+# Keynote Creator Studio leaves docProps/app.xml empty (no "saved by Keynote"). Seen 2026-10-11 on
+# "Legally Mine AACS.key" exported by Keynote Creator Studio 15.4. Two or more distinct matches = Keynote.
+# Only names that don't also appear in PowerPoint's or Google's own templates.
+- "Title & Subtitle"
+- "Title & Bullets"
+- "Title, Bullets & Photo"
+- "Title, Bullets & Photo white"
+- "Title & Photo"
+- "Title & Photo Alt"
+- "Photo - Horizontal"
+- "Photo - Vertical"
+- "Photo - 3 Up"
+- "Big Fact"

@@ -70,8 +70,9 @@ function addFiles(files, fromWatch) {
                    ext: f.ext, status: 'queued', stage: '', review: null, version: 0 };
     S.decks.push(deck);
     added++;
-    if (f.isDir) { fail(deck, 'This is a folder of slide images, not a PowerPoint file.'); continue; }
-    if (f.ext === '.key') { fail(deck, 'Keynote file: export it to PowerPoint (File ▸ Export To ▸ PowerPoint) and drop the .pptx. Automatic conversion is coming.'); continue; }
+    // Keynote (.key, a file or an older folder package) is converted by the engine on a Mac; elsewhere the
+    // engine explains how to export it.
+    if (f.isDir && f.ext !== '.key') { fail(deck, 'This is a folder of slide images, not a PowerPoint file.'); continue; }
     if (f.ext === '.ppt') { fail(deck, 'Old .ppt format: open it in PowerPoint and Save As .pptx, then drop that.'); continue; }
     if (f.size > 1024 * 1024 * 1024) toast(`${f.name} is ${(f.size / 1073741824).toFixed(1)} GB: checking it may take a while.`);
     scan(deck);
@@ -139,7 +140,7 @@ const selected = () => S.decks.find((d) => d.id === S.sel);
 // ---------------------------------------------------------------------------------------------
 // Engine events
 
-const STAGES = { scan: 'Checking', fix: 'Fixing', fit: 'Fitting text', render: 'Drawing the slides in PowerPoint',
+const STAGES = { convert: 'Converting from Keynote', scan: 'Checking', fix: 'Fixing', fit: 'Fitting text', render: 'Drawing the slides in PowerPoint',
                  safety: 'Final safety check', rescan: 'Re-checking the repaired deck' };
 
 async function onEngineEvent(ev) {
@@ -285,6 +286,11 @@ function renderResults(deck) {
   const src = data?.source;
   $('source').hidden = !(src && SHOUT[src.kind]);
   if (src && SHOUT[src.kind]) $('source').innerHTML = `<b>${esc(SHOUT[src.kind][0])}</b> ${esc(SHOUT[src.kind][1])}<small>${esc(src.message)}</small>`;
+  if (data?.converted_from) {        // converted from Keynote: say so even if the export left no fingerprint
+    $('source').hidden = false;
+    $('source').innerHTML = `<b>${esc(SHOUT.keynote[0])}</b> Converted from Keynote by Keynote itself. Check builds and Magic Move ` +
+      `transitions (they become plain fades) and fonts like Avenir.<small>${esc(data.converted_from)}</small>`;
+  }
 
   const off = [...new Set((data?.findings || []).filter((f) => f.status === 'red' && f.subject === 'off-slide' && f.slide).map((f) => f.slide))].sort((a, b) => a - b);
   $('alert').hidden = !off.length;
