@@ -1,7 +1,8 @@
 # CLAUDE.md — SlideTistic
 
 Read `SPEC.md` for what we're building. This file is how we work.
-Current handoff between machines: `docs/HANDOFF_PC_TO_MAC.md` (PC → Mac, 2026-10-10).
+Start here: `docs/HANDOFF.md` (state, lessons, open items; updated 2026-10-11). Parked UI asks: `docs/POLISH.md`.
+Newest notes between the Mac and PC sessions: Dropbox suite `_mailbox/`. (`docs/HANDOFF_PC_TO_MAC.md` is done.)
 
 ## How David works
 

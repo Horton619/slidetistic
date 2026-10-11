@@ -1,201 +1,132 @@
-# Handoff: Mac → PC (updated 2026-10-10, evening)
+# Handoff: start here (updated 2026-10-11, end of the long Mac session)
 
-> **PC → Mac (2026-10-10 night): read `docs/HANDOFF_PC_TO_MAC.md` first.** The Windows renderer is built and
-> pushed; next for the Mac is the shared Dropbox suite run and comparison. This file is the older Mac → PC brief.
+For any new Claude Code session, Mac or PC. Read this, then `CLAUDE.md` (how we work, rules, gotchas), then
+`SPEC.md` (what we're building; §11 is the dated decisions log). `docs/POLISH.md` is the parked UI/behaviour
+list; `docs/EDGE_CASES.md` logs every real-deck surprise; `docs/CROSS_PLATFORM_COMPARE.md` is the Mac ↔ PC
+suite protocol. The Dropbox suite's `_mailbox/` holds notes between the Mac and PC sessions: read the newest.
 
-For Claude Code on David's Windows PC. Read `CLAUDE.md` and `SPEC.md` first; this file covers where
-things stand, what the PC is for, and the brief for the **Windows PowerPoint renderer**, which is the next
-thing to build. Rewrite this file when it goes stale.
+## 1. Where things stand
 
-## Where things stand
+- **Released:** v0.4.1 (tag `v0.4.1`, commit `23bf87a`): signed + notarized Mac DMG/ZIP and Windows NSIS
+  installer, all 8 files in one release. The release workflow now creates one draft up front (v0.4.0's uploads
+  were split across two releases; an empty duplicate **v0.4.0 draft** still exists on GitHub: harmless,
+  David hasn't okayed deleting it).
+- **Next release: v0.4.2** = v0.4.1 + `d868312` (placeholder fix, vanished-text safety) + `daa365c` (Keynote
+  ingest) + docs. Tagging it starts CI (~12 min). David's goal: install the **production** 0.4.2 on the PC and
+  test it, including the 0.4.0/0.4.1 → 0.4.2 auto-update.
+- **Repo is public** (`Horton619/slidetistic`): client decks, run results and anything quoting client text
+  never go in git. Signing secrets are set (all five).
+- **Machines:** Mac (Apple Silicon, PowerPoint 16.113, Keynote Creator Studio 15.4 + classic Keynote 14.5) and
+  David's Windows PC (Ryzen 7 2700X, PowerPoint 16 64-bit, Python 3.11.9, Node 16, gh). Each runs its own
+  Claude Code session; they talk through git and the Dropbox suite `_mailbox/`. The Mac is 2–3× faster per CPU
+  benchmark (loop 0.09 s vs 0.19 s; lxml 0.29 s vs 0.91 s).
 
-- **v0.4.0 released** (tag `v0.4.0`, commit `13cd730`): first CI release of the desktop app.
-  - Mac: signed + notarized DMG and ZIP. Windows: unsigned NSIS installer `SlideTistic-Setup-0.4.0.exe`.
-  - The first run split its uploads across two v0.4.0 releases; the Windows files were copied into the
-    published release by hand (it has all eight files). The workflow now creates one draft up front.
-    An empty duplicate v0.4.0 *draft* may still exist on GitHub; harmless, David hasn't okayed deleting it.
-  - First Windows CI test run: 992/994; the 2 failures were tests reading UTF-8 as cp1252 (fixed).
-- **Repo is public** (needed for electron-updater). Client decks never go in git: `corpus/` is ignored.
-- **Signing secrets** are set on the repo (all five).
-- **Windows scope today:** fonts, geometry, media, playback and content checks + fixes. **No layout fixes,
-  no visual review, and box-based (noisy) off-slide warnings on Windows**: all three need PowerPoint to
-  render the deck, and only the Mac (AppleScript) renderer exists. That's what the renderer below fixes.
+## 2. What David wants next (his words, 2026-10-11)
 
-### On `main` since v0.4.0 (ships in 0.4.1; not released yet)
+1. Commit + push, start a release cycle (0.4.2) "so we can test the full new exe from production on the PC".
+2. A fresh session with this handoff (the long session's context was full).
+3. Fine-tuning of which layout moves help is **later** ("we aren't quite at that point yet"); the review needs a
+   way for him to mark changes he agrees/disagrees with first (POLISH.md).
 
-- Windows: ffprobe couldn't read embedded videos (temp file held open). Fixed: video length/codec now work.
-- **Media alert**: speaker chip on queue cards + colour-coded banner in the results pane (blue all
-  embedded, amber prep needed, red won't play offline). David asked for this while testing.
-- **Off-slide judged by drawn words** (G001/G002): with a render, a box that overhangs but whose words are
-  all drawn inside the slide is silent; words cut off are red ("6 of 15 words are below the bottom").
-  Key fact: **PowerPoint's PDF leaves out words that fall outside the slide** (Mac, broken deck slides 18
-  and 20: 0/11 and 9/15 words drawn), so "every word drawn, all inside" is the test
-  (`engine/core/layout/pdf.py: drawn_text`). Without a render the old box rules still apply.
-  App scans now use the render on the Mac (`--layout`, ~4 s per deck).
-- Layout fixes that resolved nothing are undone quietly (runner `_fit_problems`); paragraphs under 6 words
-  are never orphans (`orphan_min_paragraph_words`); review tooltips read "width 3.22 → 3.04 in".
-- David's feedback themes from testing: **cut noise hard**; never show a change that had no visible effect;
-  operators care most about media (download/offline/re-embed) and text that's truly off the slide.
+## 3. What the 2026-10-11 session did (all on `main`)
 
-## What the PC is for
+**Optimization round** (commit `b285ae5`; rules in CLAUDE.md "Optimization round"). Measured:
+| What | Before | After |
+|---|---|---|
+| PAT 23 layout repair CPU (simulated layout) | 125 s | 16 s |
+| TSCRA CWD repair (media/07) | 55 min PC / 10 min Mac | 91–95 s Mac |
+| Whole suite in the real app (31 decks, Mac) | n/a | scan 3.5 min + repair 17 min; median deck 26 s, slowest 95 s |
+| Mac CLI suite with PowerPoint (incl. 2nd repair, `--images`) | 1 h 07 min | 30 min |
+Proof method: `/private/tmp/…/scratchpad/opt_proof/` is gone with the session; the method was a fake-layout
+repair (`tests/test_fit_settles.py` has the stand-in PowerPoint) on 4 decks, comparing change lists, findings and
+a SHA-1 of every saved zip part before/after each change. Every pure-speed change was byte-identical.
 
-1. **Build the Windows PowerPoint renderer** (brief below). Biggest gap: show machines are mostly PCs.
-2. Test the installed Windows app (checklist below).
-3. Save Windows PowerPoint versions of the test decks ("never guess PowerPoint XML" needs Mac + Win saves).
+- **Fit settles:** `Reflow` predicts a width *range* (`fit_wrap_band_pct: 1`); a box gets
+  `fit_max_attempts_per_box: 2` then goes back as it was; `tests/test_fit_settles.py` = 6 cases the old engine
+  crept 3–5× on (all fail on old code, pass now). Outcome is "fixed, or untouched", never half-nudged.
+- **Builds and crowds (L010):** text with an entrance/exit animation (or inside an animated group;
+  `playback.animated_shape_ids`) is never "text over text": one yellow "animated build" note per slide.
+  >`overlap_max_per_slide: 12` collisions → one red for the slide, no fix attempts. `fit_time_budget_s: 120`.
+  TSCRA slide 41 (22 stacked year cards, each appearing on a click) was 231 reds and the 55-minute repair.
+- **Speed:** shape-list cache (`--shape-cache on|off|check`, app Diagnostics switch, default on); rounds 2+ only
+  re-check changed slides; safety pass reuses the settled round; one PowerPoint export per content per job
+  (`render.content_key`); review JPEGs 4 at a time.
+- **Render copies:** PowerPoint gets decks with tiny media stand-ins (`engine/assets/media_stubs`); verified
+  pixel-identical on Mac PowerPoint (19 pages, worst diff 0). Not yet verified on Windows (ask the PC).
+- **Mac hang protection:** size-based export limit; stop after a hang (`MacPowerPointRenderer.broken`);
+  `STUCK_FILE` for the next process; 30 s probe export; recovery = close our stuck copies by their unique names
+  → polite quit (60 s) → force-quit only as last resort (macOS then shows Microsoft's crash report: tell David to
+  untick "Recover work"). Never quits PowerPoint if anything of David's is open (count only). `_render_lock`:
+  one export at a time across every SlideTistic process, Mac and Windows. Tested with a forced hang: 17 s.
+- **Hidden PowerPoint (Mac, default on, `--powerpoint-visible` / Diagnostics switch):** launched hidden; a
+  shown PowerPoint with nothing open is hidden too; hidden again after the document window appears and after
+  close. **Limitation:** PowerPoint's own "Export As PDF" progress window un-hides it for ~1–2 s per export
+  (longer on big decks); never takes focus.
+- **Compression (M013, fix off by default, per-deck switch in the app):** PowerPoint-style 150 ppi + delete
+  cropped areas; only pictures whose every reference we measured (never a layout/master/background use);
+  JPEG stays JPEG (q85, EXIF/ICC kept), PNG stays PNG. Pitched at ≥25 % and ≥5 MB; 11 of 31 suite decks get
+  it. Real results: 65→19 MB, 204→68 MB, 39.9→19.7 MB. **M012** flags video above 1080p (report only).
+- **App:** media chip on queue cards + colour banner (blue embedded / amber prep / red won't play offline);
+  ▶ VIDEO / ♪ AUDIO badges with start mode on review slides; findings appear before slide images; compression
+  banner + switch; temp-file purge (review bundles at launch and on ✕; engine work folders >6 h; Settings →
+  Diagnostics "Clear temporary files"; `cli cleanup [--all]`).
+- **Placeholder bug (`d868312`):** moving a placeholder that inherits its position from the layout made
+  python-pptx write only that value (top → 0); text vanished on every lower-thirds slide. `EditSession`
+  pins the inherited position first. Safety pass now counts **words not drawn** too (Mac PDF omits fully
+  off-slide text). Test: `tests/test_placeholder_geometry.py` (+ a `-m powerpoint` test on the real deck).
+- **Keynote ingest (`daa365c`):** `engine/keynote.py`, see CLAUDE.md. 81 MB deck: 11 s convert, cached 1.5 s.
+  X001 detects Keynote exports by layout names (`rules/keynote_layouts.yaml`). App: "Converting from Keynote",
+  then a KEYNOTE DETECTED banner saying it was converted and what to check.
 
-## Setup on the PC
+## 4. Hard-won facts (don't rediscover)
 
-Claude Code on Windows runs commands in Git Bash. Paths below are Git Bash style.
+- **Electron:** 31.7.7 is SIGKILLed on macOS 26 → we use 32.3.3. New npm skips install scripts, so Electron's
+  download may not run: unzip the cached zip from `~/Library/Caches/electron` into `node_modules/electron/dist`
+  and write `path.txt` (memory note `reference-electron-dev-install`). SlideFluid still pins 31.7.7.
+- **Mac PowerPoint can freeze on one export** ("Processing slide 35 of 35") and queue everything behind it; cause
+  unknown, not reproducible on demand. Hang protection above contains it.
+- **Mac PDF leaves fully off-slide text out; Windows keeps it** (pdftotext clips at the edge). "Every word drawn,
+  all inside the slide" is the test (`layout/pdf.py: drawn_text`).
+- **Keynote:** classic 14.5 shows "Use the New Version of Keynote" on **every launch** (blocks automation);
+  Creator Studio 15.4 shows a one-time welcome whose Continue accepts the licence (David accepted it on the Mac).
+  Its export leaves `docProps/app.xml` empty. A damaged .key leaves a Keynote dialog up, hence the pre-check.
+- **Force-quitting PowerPoint** triggers Microsoft's crash-report dialog; avoid it.
+- **Computer use in the app:** the macOS file picker is a separate process; background clicks don't select rows.
+  Use full-screen control, then Browse → ⇧⌘G → type the path (a file path selects it) → Open. Opening a folder
+  queues every deck in it.
+- **Suite:** SKIP.md skips lower-thirds decks in `suite_run.py`; the app doesn't. David: lower-thirds decks are
+  purpose-built; don't chase their layout quirks.
+- **Vault** (`/Volumes/Minerva/Vault`) is READ ONLY. The test suite lives in `~/Dropbox/SlideTistic Test Suite`
+  (32 decks incl. `media/` samples; `TEST_DECKS.md` lists what each triggers). `corpus/vault/` holds the same
+  decks locally (git-ignored); `corpus/app-run/` has the app run's repaired decks.
 
-```bash
-git clone https://github.com/Horton619/slidetistic.git     # or `git pull` if already cloned
-cd slidetistic
-py -3.11 -m venv venv                              # Python 3.11 from python.org, matches CI
-venv/Scripts/pip install -r requirements.txt
-venv/Scripts/python -m pytest -q                   # should be all green (CI runs it on Windows now)
-npm ci                                             # then `npm start` runs the app in dev
-```
+## 5. Suite results so far
 
-- **Tools for dev:** the engine finds Poppler and ffprobe via `SLIDETISTIC_TOOLS` (a folder), then PATH.
-  The installed app ships ffprobe in `resources/tools`. For the renderer you also need Poppler for Windows
-  (`pdftotext.exe`, `pdftoppm.exe` + their DLLs): download the release SlideFluid's workflow uses
-  (oschwartz10612/poppler-windows v24.08.0-0), copy `Library/bin/*` into `vendor/win/` (git-ignored),
-  and `export SLIDETISTIC_TOOLS="$PWD/vendor/win"`. Ask David before downloading.
-- **Electron install trap (seen on the Mac):** newer npm may skip Electron's download step. If
-  `npm start` says "Electron failed to install correctly", run `node node_modules/electron/install.js`.
-- Claude's memory notes from the Mac go in `C:\Users\<you>\.claude\projects\<this project's folder>\memory\`
-  (David copies them over).
+- No-layout, Mac vs PC: 31/31 identical (data checks match exactly across platforms).
+- Layout, PC `85f42cd` vs Mac `ae3957c` (old code): 31 compared, 0 exact-check differences, 13 identical, 18 differ
+  only in render-based findings (font rendering). Report in `_compare/`.
+- New code, Mac `20261011-1207-mac-daa365c-layout` (= v0.4.2 engine): 31 decks, 0 crashes, 0 timeouts, 0 tool_errors,
+  Keynote deck converted + repaired. **Second-repair changes: 14** across 7 decks (AACS 1410 3, TSCRA 2026 Room 202 3,
+  CLARB 01-02 MASTER 2, media/03 2, media/10 2, PAT 1, media/09 1), down from 76 (Mac `ae3957c`) / 59 (PC `85f42cd`).
+  Goal is 0. `suite_run.py` stores only the count: to find the checks, re-run `repair` on a repaired deck with
+  `--json` and read the `change` events (first job for engine work; candidate: also save them in the deck json).
+  **The PC has not run the new code yet** (mailbox `20261011-1240-mac-release-0.4.2-requests.md`).
 
-## Shared real-deck test suite (Mac and PC test the same decks)
+## 6. Open, in order
 
-32 client decks chosen so each kind of finding shows up in one or two decks, plus media samples (Google
-"picture that opens YouTube", PowerPoint Online Video, YouTube links, embedded video in every start mode
-including a real "When Clicked On"). They live in **Dropbox, never in git** (the repo is public and these
-are client decks): `Dropbox/SlideTistic Test Suite/`, with `TEST_DECKS.md` there listing what each deck
-should trigger. Point the corpus tests at it, once per machine:
+1. **PC:** install production 0.4.2; auto-update test (0.4.1 → 0.4.2); run both suites on the 0.4.2 commit and
+   compare with the Mac's; verify media stand-ins render pixel-identically on Windows (render `media/09` both ways);
+   **"When Clicked On" video plays on a clicker press in Windows PowerPoint** (suite `media/09`; only verified
+   on Mac so far); Poll Everywhere add-in tab storm on the PC (EDGE_CASES, open).
+2. Second-repair changes 14 → 0 (§5). Then `docs/POLISH.md` (red vs yellow in the review is David's newest ask).
+3. David's open questions: M008 ignores photos under 2 MB (flag smaller?); noisy checks (M009, X003, M008, M011,
+   G003 grouping, small L011 overlaps); accept corpus snapshot diffs; Fun-skin tagline list.
+4. Later: P005 click map, C007 remove-comments fix, F009 Google-font downloader, CI off deprecated Node 20 actions,
+   Windows `.ppt`/`.key` messages reviewed on the PC.
 
-```bash
-echo "C:/Users/<you>/Dropbox/SlideTistic Test Suite" > .corpus-path    # git-ignored; use your Dropbox path
-venv/Scripts/python -m pytest -m corpus                                 # first run: no snapshots yet
-```
+## 7. How David works (also in his global CLAUDE.md)
 
-Snapshots are per machine (`corpus/snapshots/`, git-ignored), keyed by the deck's path inside the suite.
-The first run on each machine fails with "no snapshot yet": review the findings against `TEST_DECKS.md`,
-then `--update-snapshots`. Expect some Mac/PC differences where fonts render differently; report them
-rather than forcing them to match. Make sure Dropbox has the folder fully downloaded (not online-only).
-
-## Brief: Windows PowerPoint renderer
-
-> **Status (PC, 2026-10-10 night): built.** `WindowsPowerPointRenderer` in `engine/render.py`, app wiring
-> (`app:info`, open-at-slide), CI Poppler step, `tests/test_render.py` (`-m powerpoint` for the real run).
-> Verified on the PC: checks 1, 3, 4 below, and check 2 on a generated deck (off-left box 0/5 drawn,
-> half-off 4/8; Windows keeps off-slide text in the PDF, see CLAUDE.md). A PyInstaller build renders.
-> **Still open:** check 2 on `broken_mac.pptx` (slides 18/19/20) and check 5 (PAT end to end): both decks
-> need copying to the PC's `corpus/`. Not yet released (0.4.1 ships after this, David's call).
-
-**Goal:** on Windows with PowerPoint installed, the engine renders decks exactly as it does on the Mac,
-so layout fixes, the visual review (before/after slide pictures) and drawn-word off-slide checks all work.
-Everything downstream already exists and is platform-neutral: it only needs a PDF of the deck.
-
-### The contract (copy the Mac class in `engine/render.py`)
-
-```
-name: str                                   # shown in diagnostics, e.g. "PowerPoint for Windows"
-available() -> (bool, reason)               # staticmethod; reason is shown to the user when False
-to_pdf(pptx: Path, label: str) -> Path      # export a COPY of the deck to PDF; raise RenderError on failure
-page_image(pdf, page, width=960) -> bytes   # JPEG via pdftoppm (identical on both platforms)
-cleanup()                                   # delete work files
-```
-
-Callers construct `PowerPointRenderer` directly in three places: `engine/core/runner.py` (`_layout_for`)
-and `engine/cli.py` (`_write_report`, `_undo_slide`). Add one `get_renderer()` / platform switch in
-`engine/render.py` and point those three at it; don't spread `sys.platform` checks around.
-
-### How (COM via pywin32)
-
-- `pywin32` in `requirements.txt` with a marker: `pywin32==<version>; sys_platform == "win32"`.
-  PyInstaller handles it through pyinstaller-hooks-contrib; check the packaged engine still lists 40 checks.
-- `pythoncom.CoInitialize()`; `app = win32com.client.Dispatch("PowerPoint.Application")`.
-- Copy the deck to a unique temp path first (`slidetistic-<uuid>-<label>.pptx`), like the Mac.
-  `shutil.copyfile` doesn't carry the Mark-of-the-Web, so no Protected View.
-- `pres = app.Presentations.Open(str(copy), ReadOnly=True, Untitled=False, WithWindow=False)`, then
-  `pres.SaveAs(str(pdf), 32)` (32 = ppSaveAsPDF) or `pres.ExportAsFixedFormat(...)`, then `pres.Close()`.
-- **Safety rules, non-negotiable** (a name clash once closed David's own deck on the Mac):
-  - Only ever touch the `pres` object returned by *your* `Open`. Never index `app.Presentations`, never use
-    `ActivePresentation`, never look up a presentation by name, never enumerate the user's open decks.
-  - If PowerPoint was already running before you started, never call `app.Quit()`. Detect it with
-    `win32com.client.GetActiveObject("PowerPoint.Application")` before dispatching. If you started it
-    and nothing else is open in it, quitting is fine.
-  - Never modify the input file (only the copy is opened, read-only).
-- **Hangs:** a COM call can block on a dialog (repair prompt, password, missing-link warning). Put a
-  timeout around the export (the Mac uses 300 s) and turn a hang into `RenderError` with a plain message.
-  Password-protected decks: `Open` raises; report it, don't prompt.
-- `available()`: False with a reason if not Windows, PowerPoint isn't registered
-  (`HKEY_CLASSES_ROOT\PowerPoint.Application`), or Poppler isn't found via `tools.find`.
-
-### Things to verify on the PC (the Mac behaviour the engine depends on)
-
-1. **Hidden slides are left out of the PDF.** `PdfLayout._load` maps pages to slides assuming that.
-   If Windows includes them, use `ExportAsFixedFormat` with `IncludeHiddenSlides=False` (msoFalse).
-2. **Words outside the slide are left out of the PDF text.** `drawn_text` relies on it. Run
-   `corpus/broken_mac.pptx` (David will copy it over): slide 18's off-left box must draw 0 of 11 words,
-   slide 20's box 9 of 15, slide 19's 2 of 2.
-   The probe script pattern: build `PdfLayout(deck, renderer)`, then for each text shape compare
-   `len(_tokens(shape_text(sv.shape)))` with the drawn tokens from `layout.measure(slide, shape_id)`.
-3. **Page size = slide size** (PDF points × 12700 = EMU), so word positions land in slide coordinates.
-4. **Speed:** the Mac exports a 30-slide deck in ~1–3 s. Report the Windows time.
-5. End to end: `venv/Scripts/python -m engine.cli repair "<PAT deck>" --out out.pptx --review-dir rd`
-   should give results close to the Mac's (PAT: 58 fixed, 27 to look at, 0 broken). Fonts render
-   differently on Windows, so some layout calls will legitimately differ; report the diff, don't force it.
-
-### Also to wire up
-
-- `src/main.js`: `app:info` reports `powerpoint: null` on Windows; detect it (registry or ask the engine).
-  `ppt:openAtSlide` on Windows just opens the file; with COM it can open and `GotoSlide(n)` in the
-  user's own PowerPoint window (this one is meant to be visible and stay open).
-- CI (`.github/workflows/release.yml`, `release-win` job): bundle Poppler for Windows into `vendor/win`
-  (copy SlideFluid's download step, but take `pdftotext.exe` and `pdftoppm.exe` plus DLLs). The engine
-  smoke test can't render on CI (no PowerPoint there); `available()` returning False must not fail anything.
-- Tests: the renderer can't run in CI. Keep logic that doesn't need PowerPoint (platform switch, unique
-  names, error mapping) unit-testable; mark any real-PowerPoint test so it's skipped unless asked for.
-- Docs: `CLAUDE.md` (renderer notes + any Windows gotchas found), `SPEC.md` decisions log,
-  `docs/EDGE_CASES.md` for anything surprising.
-
-## Test checklist: installed Windows app
-
-Install from the Releases page (unsigned: SmartScreen → **More info → Run anyway**).
-Log file: `%APPDATA%\SlideTistic\slidetistic.log` (also Settings → Diagnostics).
-
-- [ ] Launches; queue and drop zone appear; Settings opens (all four tabs).
-- [ ] Drop a deck → it scans; findings and the Canva/Google banner look right.
-- [ ] Drop a folder → every deck inside is queued; ✕ removes one.
-- [ ] A `.key` or a broken file gets a red ✕ card with a plain explanation.
-- [ ] Repair → "Deck - mended.pptx" next to the original; repairing again makes "(2)". Original untouched.
-- [ ] Open the mended deck in **Windows PowerPoint**:
-  - [ ] Fonts look right; Mac-only fonts (Avenir etc.) were swapped.
-  - [ ] **A video that was "When Clicked On" now plays on a clicker/arrow press** in Slide Show (only
-        verified in Mac PowerPoint so far; the most important check).
-- [ ] Media tab lists videos; CSV/Excel export saves. (0.4.0: lengths blank, fixed in 0.4.1.)
-- [ ] Watch folder picks up a dropped deck. SlideFluid button opens it or says it isn't installed.
-- [ ] Settings → Diagnostics → Check for updates works.
-
-## Windows PowerPoint saves to make
-
-From `docs/BROKEN_DECK_RECIPE.md`: `broken_win.pptx` built in Windows PowerPoint, especially items 01–09
-(video start modes, rewind, loop, trim, mute, audio), 13–16 (advance, click animations, trigger) and 27
-(comments). Decks go in the local `corpus/` folder, never in git.
-
-## Open questions for David (carried over)
-
-- Ship 0.4.1 now, or after the renderer?
-- Slide 35 "huge photo, small": M008 ignores photos under 2 MB. Flag smaller ones?
-- Noisy checks: M009, X003, M008, M011, G003 grouping, small L011 overlaps: keep, tone down, or hide?
-- Accept the corpus snapshot diffs so later changes are measured against them.
-- Fun-skin taglines rotation list (Pro is now "PowerPoint is my special interest.").
-
-## After the renderer
-
-1. P005 click map (needs saved decks with click animations from Mac and Windows).
-2. Faster layout repair (~80 s per deck now).
-3. C007 "remove comments" fix, F009 Google-font downloader, move CI off deprecated Node 20 actions.
-4. Keynote conversion.
+Collaborator, not a drone: offer alternatives, flag trade-offs, give one-or-two-sentence recaps. Stability and the
+end product first; a small speed gain that risks either is his call (he prefers flagging slides for manual review
+over long computation). Never commit or push without being asked ("ship"/"push" = yes). He adds "oh also" asks
+mid-build: land each as a small isolated change. Plain, crew-readable wording in the app.

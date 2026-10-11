@@ -1,4 +1,4 @@
-# Handoff: PC → Mac (2026-10-10, night)
+# Handoff: PC → Mac (2026-10-10, night) — DONE, acted on 2026-10-11; current state is in `docs/HANDOFF.md`
 
 For Claude Code on David's Mac. Read this first, then `CLAUDE.md`. Everything the PC session did, found and
 left open is here; details live in the linked files. Rewrite or delete this file once the Mac has acted on it.
