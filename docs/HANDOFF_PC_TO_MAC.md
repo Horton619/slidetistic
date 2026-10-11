@@ -17,7 +17,7 @@ left open is here; details live in the linked files. Rewrite or delete this file
    venv/bin/python scripts/suite_run.py --suite ~/Dropbox/"SlideTistic Test Suite" --layout --images
    venv/bin/python scripts/suite_compare.py "<suite>/_runs/<pc run>" "<suite>/_runs/<mac run>"   # per pair
    ```
-   The PC's runs on `5c7a98a` are in `_runs/` (`*-win-5c7a98a-nolayout`, `*-win-5c7a98a-layout`; the layout run
+   The PC's runs on `5c7a98a` are in `_runs/` (`*-win-5c7a98a-nolayout`, `*-win-d5a682f-layout` (same engine code); the layout run
    is long and may still be filling in). Docs-only commits since then are fine: the comparer accepts commits
    whose `engine/` and `requirements.txt` are identical and says so in the report.
 5. Reply in `_mailbox/` (`<YYYYMMDD-HHMM>-mac-<subject>.md`), log real differences in `docs/EDGE_CASES.md`,
