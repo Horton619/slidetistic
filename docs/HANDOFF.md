@@ -63,6 +63,24 @@ npm ci                                             # then `npm start` runs the a
 - Claude's memory notes from the Mac go in `C:\Users\<you>\.claude\projects\<this project's folder>\memory\`
   (David copies them over).
 
+## Shared real-deck test suite (Mac and PC test the same decks)
+
+32 client decks chosen so each kind of finding shows up in one or two decks, plus media samples (Google
+"picture that opens YouTube", PowerPoint Online Video, YouTube links, embedded video in every start mode
+including a real "When Clicked On"). They live in **Dropbox, never in git** (the repo is public and these
+are client decks): `Dropbox/SlideTistic Test Suite/`, with `TEST_DECKS.md` there listing what each deck
+should trigger. Point the corpus tests at it, once per machine:
+
+```bash
+echo "C:/Users/<you>/Dropbox/SlideTistic Test Suite" > .corpus-path    # git-ignored; use your Dropbox path
+venv/Scripts/python -m pytest -m corpus                                 # first run: no snapshots yet
+```
+
+Snapshots are per machine (`corpus/snapshots/`, git-ignored), keyed by the deck's path inside the suite.
+The first run on each machine fails with "no snapshot yet": review the findings against `TEST_DECKS.md`,
+then `--update-snapshots`. Expect some Mac/PC differences where fonts render differently; report them
+rather than forcing them to match. Make sure Dropbox has the folder fully downloaded (not online-only).
+
 ## Brief: Windows PowerPoint renderer
 
 **Goal:** on Windows with PowerPoint installed, the engine renders decks exactly as it does on the Mac,

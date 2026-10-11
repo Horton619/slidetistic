@@ -81,7 +81,7 @@ presentation by name, and never enumerate David's open presentations: a name cla
 AppleScript gotcha: `out` is a reserved word in PowerPoint's dictionary; `whose` filters aren't supported.
 
 **Corpus:** the real-deck folder is read from `--corpus`, `$SLIDETISTIC_CORPUS`, or the git-ignored
-`.corpus-path` file (currently David's `~/Downloads`). Snapshots live in the git-ignored `corpus/snapshots/`.
+`.corpus-path` file: the shared suite in `Dropbox/SlideTistic Test Suite/` (32 decks, same on Mac and PC; its `TEST_DECKS.md` says what each should trigger; never copy it into git). Snapshots live in the git-ignored `corpus/snapshots/`.
 A run takes ~3 min for ~66 decks. It always fails on a crashed check, a repair that introduces a problem,
 or a second repair that still changes something. The "corpus diff" section at the end is what to report
 to David; only run `--update-snapshots` after he accepts it.
