@@ -1,6 +1,7 @@
 # CLAUDE.md — SlideTistic
 
 Read `SPEC.md` for what we're building. This file is how we work.
+Current handoff between machines: `docs/HANDOFF_PC_TO_MAC.md` (PC → Mac, 2026-10-10).
 
 ## How David works
 

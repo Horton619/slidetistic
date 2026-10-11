@@ -19,6 +19,17 @@ MEDIA_FIELDS = ("kind", "duration", "trimmed", "starts", "loop", "full_screen", 
                 "format", "codec", "resolution", "mb", "risk")      # engine/export.py INVENTORY_COLUMNS
 
 
+def engine_unchanged(a: str, b: str) -> bool:
+    """True when two commits differ only outside the engine (docs, scripts, app): results are comparable."""
+    import subprocess
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        r = subprocess.run(["git", "diff", "--quiet", a, b, "--", "engine", "requirements.txt"], cwd=repo, timeout=30)
+        return r.returncode == 0
+    except OSError:
+        return False
+
+
 def load(run_dir: Path) -> tuple[dict, dict[str, dict]]:
     run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     decks = {}
@@ -66,15 +77,20 @@ def main():
     args = ap.parse_args()
     a_dir, b_dir = Path(args.run_a), Path(args.run_b)
     (ra, da), (rb, db) = load(a_dir), load(b_dir)
-    if ra["commit"].split("+")[0] != rb["commit"].split("+")[0] and not args.allow_mismatch:
-        sys.exit(f"Different commits ({ra['commit']} vs {rb['commit']}): pull the same commit on both, "
-                 "or pass --allow-mismatch")
+    ca, cb = ra["commit"].split("+")[0], rb["commit"].split("+")[0]
+    same_engine = ca == cb or engine_unchanged(ca, cb)
+    if not same_engine and not args.allow_mismatch:
+        sys.exit(f"Different engine code ({ca} vs {cb}): pull the same commit on both, or pass --allow-mismatch")
     layout = ra.get("layout") and rb.get("layout")
     A, B = ra["platform"], rb["platform"]
     if A == B:
         A, B = f"{A} ({ra['run'][:13]})", f"{B} ({rb['run'][:13]})"
 
     out = [f"# {ra['run']}  vs  {rb['run']}", ""]
+    if ca != cb:
+        out += [f"_Commits differ ({ca} vs {cb}); "
+                + ("engine code is identical, so results are comparable._" if same_engine
+                   else "engine code DIFFERS (compared with --allow-mismatch)._"), ""]
     out += [f"| | {A} | {B} |", "| --- | --- | --- |"]
     for k in ("commit", "dirty", "layout", "os", "python", "powerpoint", "poppler", "ffprobe", "started", "finished"):
         out.append(f"| {k} | {ra.get(k, '')} | {rb.get(k, '')} |")
