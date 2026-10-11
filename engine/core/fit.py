@@ -34,18 +34,17 @@ def place(edits, sv, *, left=None, top=None, width=None, height=None):
     edits.set_geometry(sv, **kw)
 
 
-def grow(sv, extra: float, safe) -> tuple[float, float] | None:
+def grow(sv, extra: float, safe, fixed: "_Fixed | None" = None) -> tuple[float, float] | None:
     """New (left, width) after widening (or, negative, narrowing) by `extra` the way the text is
     aligned (SPEC §7.2): centred → both sides, left → to the right, right → to the left.
     No clamping of the BOX: a box's edge isn't where its text is (PAT 18: a box 0.8 in off the slide
     with 1.6 in of indent got shoved 1.8 in right). Callers check the predicted TEXT instead."""
-    b = sv.bounds
+    f = fixed or _Fixed(sv)
+    b, ins, algn = f.bounds, f.ins, f.algn
     width = b.width + extra
     sl, _, sr, _ = safe
-    ins = insets(sv.shape)
     if width <= 0 or (extra > 0 and width - ins["l"] - ins["r"] > sr - sl):
         return None
-    algn = alignments(sv.shape) or {"l"}
     if algn <= {"r"}:
         left = b.left - extra
     elif algn <= {"l", "just"}:
@@ -53,6 +52,21 @@ def grow(sv, extra: float, safe) -> tuple[float, float] | None:
     else:
         left = b.left - extra / 2
     return left, width
+
+
+@dataclass
+class _Fixed:
+    """A shape's box, insets, alignment and id: constant while a fix is planned (nothing is edited
+    until the plan is chosen), but each costs an XML lookup, and plan_fit asks for them hundreds of
+    thousands of times on a big deck (PAT 23: 842k alignment reads)."""
+    bounds: object
+    ins: dict
+    algn: set
+    sid: int
+
+    def __init__(self, sv):
+        self.bounds, self.ins = sv.bounds, insets(sv.shape)
+        self.algn, self.sid = alignments(sv.shape) or {"l"}, sv.shape_id
 
 
 def text_area(sv) -> float:
@@ -155,7 +169,7 @@ def merged_line(top_line, width: float, sv, new_left: float, new_width: float):
 class Reflow:
     """scale: font size factor (word widths and line pitch); spacing: line-spacing factor (pitch only)."""
 
-    def __init__(self, sv, st, scale: float = 1.0, spacing: float = 1.0):
+    def __init__(self, sv, st, scale: float = 1.0, spacing: float = 1.0, band: float = 0.01):
         self.sv, self.st, self.scale, self.spacing = sv, st, scale, spacing
         order = list(dict.fromkeys(st.paragraph_of_line))
         self.paras = []
@@ -169,24 +183,30 @@ class Reflow:
         pitches = [b.top - a.top for lines in self.paras for a, b in zip(lines, lines[1:]) if b.top > a.top]
         self.pitch = sorted(pitches)[len(pitches) // 2] if pitches else self.line_h * 1.15
         self.area0 = text_area(sv)
-        self.offset = self._calibrate()
+        self.bounds, self.algn = sv.bounds, alignments(sv.shape) or {"l"}
+        self.offsets = self._calibrate(band)
 
     def _w(self, word) -> float:
         return (word.right - word.left) * self.scale
 
-    def _calibrate(self) -> float:
+    def _calibrate(self, band: float) -> tuple[float, float]:
+        """The range of usable text widths PowerPoint's actual breaks allow, as offsets from the box's
+        text area. Every line fits (≥ lo) and no line could have taken the next line's first word
+        (< hi). The true width is near the box's own text area, so the range is that area ± `band`,
+        clamped into [lo, hi]. A fix must work at BOTH ends: a single "narrowest possible" guess made
+        narrowing look like it re-wraps when PowerPoint still had slack, so L009 crept ~1% a round
+        to the 6-round cap (Loop Lid, CLARB 11; optimization round 2026-10-11)."""
         lo, hi = 0.0, float("inf")
         for lines in self.paras:
             for k, line in enumerate(lines):
                 lo = max(lo, line.width)
                 if k + 1 < len(lines) and lines[k + 1].boxes:
                     hi = min(hi, line.width + self.gap + (lines[k + 1].boxes[0].right - lines[k + 1].boxes[0].left))
-        # Conservative: the narrowest usable width consistent with PowerPoint's breaks. A midpoint
-        # was too optimistic and "fit" lines that PowerPoint then wrapped (caught by a unit test).
-        width = lo * 1.002 if lo else self.area0
-        if hi != float("inf") and width >= hi:
-            width = (lo + hi) / 2
-        return width - self.area0
+        lo_w = lo * 1.002 if lo else self.area0
+        hi_w = max(hi * 0.998 if hi != float("inf") else max(lo_w, self.area0), lo_w)
+        a = max(lo_w, min(self.area0 * (1 - band), hi_w))
+        b = min(hi_w, max(self.area0 * (1 + band), lo_w))
+        return a - self.area0, b - self.area0
 
     def wrap(self, words, area) -> list[list]:
         out, cur, used = [], [], 0.0
@@ -202,11 +222,20 @@ class Reflow:
         return out
 
     def predict(self, new_left: float, new_width: float):
-        """(predicted Line list, orphan count, total line count) for the box at (new_left, new_width)."""
+        """(predicted Line list, orphan count, total line count) for the box at (new_left, new_width),
+        at both ends of the calibrated range: lines from both (so collision and edge checks cover
+        either outcome), the worse orphan and line counts."""
+        a = self._predict_at(new_left, new_width, self.offsets[0])
+        if self.offsets[1] == self.offsets[0]:
+            return a
+        b = self._predict_at(new_left, new_width, self.offsets[1])
+        return a[0] + b[0], max(a[1], b[1]), max(a[2], b[2])
+
+    def _predict_at(self, new_left: float, new_width: float, offset: float):
         from .layout.pdf import Line
-        b = self.sv.bounds
-        area = (new_width - (b.width - self.area0)) + self.offset
-        algn = alignments(self.sv.shape) or {"l"}
+        b = self.bounds
+        area = (new_width - (b.width - self.area0)) + offset
+        algn = self.algn
         out, orphans, total = [], 0, 0
         y = self.paras[0][0].top if self.paras and self.paras[0] else b.top
         for i, lines in enumerate(self.paras):
@@ -255,8 +284,8 @@ def obstacles(deck, slide_number: int, sid: int, current_lines) -> list[tuple]:
     hidden behind an illustration; PAT 5: a bullet pushed under a chart). Ones it already overlaps (a
     title on a photo, a text panel's own background) are fine."""
     out = []
-    for sv in deck.iter_shapes():
-        if sv.slide_number != slide_number or not is_graphic(sv):
+    for sv in deck.slide_shapes(slide_number):
+        if not is_graphic(sv):
             continue
         box = (sv.bounds.left, sv.bounds.top, sv.bounds.right, sv.bounds.bottom)
         if not any(hits_box(l, box) for l in current_lines):
@@ -282,7 +311,7 @@ class Plan:
 
 
 def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, widen_pct=0,
-             fonts=(1.0,), spacings=(1.0,), move=False, obstacle_boxes=()) -> "Plan | None":
+             fonts=(1.0,), spacings=(1.0,), move=False, obstacle_boxes=(), band=0.01) -> "Plan | None":
     """The cheapest change, in David's order (box → line spacing → font), whose PREDICTED text: never
     leaves the slide, hits no other text, slides onto no new picture, passes `accept(orphans, lines)`,
     and is no further into the safe border than it is now. With `move` (the safe-zone fix) it must end
@@ -293,13 +322,14 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
     if not move and st.bounds:
         cl, ct, cr, cb = st.bounds
         sl, stop, sr, sb = min(sl, max(cl, 0)), min(stop, max(ct, 0)), max(sr, min(cr, W)), max(sb, min(cb, H))
-    old = sv.bounds.width
+    fixed = _Fixed(sv)
+    old = fixed.bounds.width
     steps = sorted(range(-narrow_pct, widen_pct + 1), key=lambda d: (abs(d), d < 0))
     for font in fonts:
         for spacing in spacings:
-            r = Reflow(sv, st, font, spacing)
+            r = Reflow(sv, st, font, spacing, band)
             for d in steps:
-                spot = grow(sv, old * d / 100, safe)
+                spot = grow(sv, old * d / 100, safe, fixed)
                 if not spot:
                     continue
                 lines, orphans, total = r.predict(*spot)
@@ -318,11 +348,11 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
                 if (min(x.left for x in lines) < sl or max(x.right for x in lines) > sr or
                         min(x.top for x in lines) < stop or max(x.bottom for x in lines) > sb):
                     continue
-                if collision(slide_layout, sv.shape_id, lines, tol) is not None:
+                if collision(slide_layout, fixed.sid, lines, tol) is not None:
                     continue
                 if any(hits_box(x, box, tol) for x in lines for box in obstacle_boxes):
                     continue
-                return Plan(spot[0] + dx, sv.bounds.top + dy, spot[1], font, spacing, lines, total, orphans)
+                return Plan(spot[0] + dx, fixed.bounds.top + dy, spot[1], font, spacing, lines, total, orphans)
     return None
 
 

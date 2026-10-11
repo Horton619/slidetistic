@@ -27,6 +27,7 @@
     repair: async (id) => { run(id, 'repair'); return { output: '/Users/demo/Downloads/03 - PAT MBD Presentation - mended.pptx' }; },
     undoSlide: async (id, _m, slide) => { setTimeout(() => emit({ deckId: id, kind: 'undo', type: 'undone', slide }), 600); return {}; },
     cancel: async () => {},
+    discardReview: async () => {}, tempSize: async () => ({ bytes: 36e6 }), clearTemp: async () => ({ bytes: 2e6 }),
     loadReview: async () => ({ dir: `${location.origin}${ROOT}/${BUNDLE}`, data: await (await fetch(`${ROOT}/${BUNDLE}/review.json`)).json() }),
     onEngineEvent: (cb) => { listeners.push(cb); return () => {}; },
     exportReport: async () => ({ path: '/Users/demo/Downloads/report.html' }), exportMedia: async () => ({ path: '/Users/demo/Downloads/media.xlsx' }),

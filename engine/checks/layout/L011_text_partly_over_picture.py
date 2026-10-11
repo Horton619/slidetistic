@@ -20,7 +20,7 @@ class TextPartlyOverPicture(Check):
         shapes = deck.iter_shapes()
         names = {(sv.slide_number, sv.shape_id): sv.name for sv in shapes}
         findings = []
-        for n in range(1, len(deck.slides) + 1):
+        for n in ctx.slide_numbers(deck):
             pics = [sv for sv in shapes if sv.slide_number == n and fit.is_graphic(sv)]
             for sid, st in ctx.layout.slide(n).items():
                 if not st.bounds:

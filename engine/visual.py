@@ -43,6 +43,7 @@ class SlideVisual:
     before_png: str | None = None    # data: URI
     after_png: str | None = None
     looks_same: bool = False         # rendered before/after are visually identical
+    media: list = field(default_factory=list)   # video/audio on the slide: the review's ▶ VIDEO badges
 
     @property
     def tier(self) -> int:
@@ -119,6 +120,18 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
         target = v.after_boxes if mended else v.before_boxes
         target.append(Box(*geom, f"{f.check_id}: {f.message}", kind_of(f.check_id), f.status.value,
                           f.evidence.get("rule", "")))
+    # Badge every video and sound on the slides shown, so operators see at a glance where media plays
+    # (David 2026-10-11: media is the biggest pre-show job).
+    from .core.media import media_items
+    starts = {"automatic": "plays automatically", "click_sequence": "starts on click {clicks}",
+              "on_click": "only when clicked", "no_timing": "no start setting", "unknown": "start unclear"}
+    for m in media_items(current):
+        sv = shapes.get((m.slide, m.shape_id))
+        if m.slide in visuals and sv is not None and sv.bounds:
+            l, t, w, h = from_sv(sv)
+            visuals[m.slide].media.append({"left": l, "top": t, "width": w, "height": h, "kind": m.kind,
+                                           "start": starts.get(m.mode, "").format(clicks=m.clicks),
+                                           "linked": m.linked})
     return [visuals[k] for k in sorted(visuals)]
 
 
@@ -138,6 +151,13 @@ def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer, i
                 page += 1
                 page_of[n] = page
         pages[label] = (renderer.to_pdf(path, label), page_of)
+    # pdftoppm per page, four at a time (~35 ms each, one call per page keeps the file names). Each
+    # (pdf, page) once: "before" and "after" can be the same PDF when nothing on the deck changed.
+    from concurrent.futures import ThreadPoolExecutor
+    wanted = {(pages[label][0], pages[label][1][v.slide]) for v in visuals for label in pages
+              if v.slide in pages[label][1]}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        images = dict(zip(wanted, pool.map(lambda key: renderer.page_image(*key), wanted)))
     for v in visuals:
         raw = {}
         for label, attr in (("before", "before_png"), ("after", "after_png")):
@@ -145,7 +165,7 @@ def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer, i
                 continue
             pdf, page_of = pages[label]
             if v.slide in page_of:
-                raw[label] = renderer.page_image(pdf, page_of[v.slide])
+                raw[label] = images[(pdf, page_of[v.slide])]
                 if image_dir:
                     name = f"slide-{v.slide}-{label}.jpg"
                     (image_dir / name).write_bytes(raw[label])

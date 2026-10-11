@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 
 from .core import tools
+from .core.deck import write_render_copy
 
 CONTAINER_TMP = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/tmp/slidetistic"
 MAC_APP = Path("/Applications/Microsoft PowerPoint.app")
@@ -46,8 +47,131 @@ def _unique_name(label: str) -> str:
     return f"slidetistic-{uuid.uuid4().hex[:8]}-{label}"
 
 
+def content_key(pptx: Path) -> str:
+    """Fingerprint of what's inside a deck: each part's name, CRC and size from the zip directory.
+    python-pptx stamps new zip timestamps on every save, so identical content gives different file
+    bytes; this matches them without reading any media."""
+    import hashlib
+    import zipfile
+    from .core.deck import stub_for
+    with zipfile.ZipFile(pptx) as z:
+        # Media that renders as its poster image counts by name only: a render copy (stand-in) and
+        # the real deck draw the same.
+        rows = sorted((i.filename, 0, 0) if stub_for(i.filename) is not None else (i.filename, i.CRC, i.file_size)
+                      for i in z.infolist())
+    return hashlib.sha1(repr(rows).encode()).hexdigest()
+
+
+LOCK_FILE = Path(tempfile.gettempdir()) / "slidetistic" / "render.lock"
+
+
+class _render_lock:
+    """One PowerPoint export at a time across all SlideTistic processes on this computer. The app, a
+    suite run and a CLI repair could all drive PowerPoint at once (2026-10-11: an overnight Mac run
+    froze with ~30 exports queued inside PowerPoint)."""
+
+    def __init__(self, wait: float = 1800.0):
+        self.wait = wait
+
+    def __enter__(self):
+        import time
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.f = open(LOCK_FILE, "a+")
+        deadline = time.monotonic() + self.wait
+        while True:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except OSError:
+                if time.monotonic() > deadline:
+                    self.f.close()
+                    raise RenderError("another SlideTistic job has been using PowerPoint for over 30 minutes")
+                time.sleep(0.5)
+
+    def __exit__(self, *exc):
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                self.f.seek(0)
+                msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.f.close()
+
+
+def _work_roots() -> list[Path]:
+    """Where renderers keep their per-job folders (Mac: PowerPoint's sandbox; Windows: temp)."""
+    return [CONTAINER_TMP, Path(tempfile.gettempdir()) / "slidetistic"]
+
+
+def purge_leftovers(max_age_hours: float = 6.0, everything: bool = False) -> int:
+    """Delete renderer work folders a finished or killed job left behind; returns bytes freed.
+    Automatic (every renderer start): folders untouched for `max_age_hours`, longer than any job runs.
+    `everything` (Settings → Clear temporary files): all of them, but only while no job holds the
+    render lock. Copies PowerPoint is stuck on (STUCK_FILE) are kept until it's recovered."""
+    import json
+    import time
+    try:
+        stuck = {str(Path(c).parent) for c in json.loads(STUCK_FILE.read_text(encoding="utf-8")).get("copies", [])}
+    except (OSError, ValueError):
+        stuck = set()
+    lock = None
+    if everything:
+        try:
+            lock = _render_lock(wait=0).__enter__()
+        except RenderError:
+            everything = False              # a job is rendering right now: only clear the old ones
+    freed = 0
+    try:
+        for root in _work_roots():
+            if not root.is_dir():
+                continue
+            for d in root.iterdir():
+                if not d.is_dir() or str(d) in stuck:
+                    continue
+                files = [f for f in d.rglob("*") if f.is_file()]
+                newest = max((f.stat().st_mtime for f in files), default=d.stat().st_mtime)
+                if everything or time.time() - newest > max_age_hours * 3600:
+                    freed += sum(f.stat().st_size for f in files)
+                    shutil.rmtree(d, ignore_errors=True)
+    finally:
+        if lock:
+            lock.__exit__(None, None, None)
+    return freed
+
+
+def _deck_size(pptx: Path) -> tuple[int, float]:
+    """(slides, MB) without opening the deck in python-pptx."""
+    import re
+    import zipfile
+    with zipfile.ZipFile(pptx) as z:
+        slides = sum(1 for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n))
+    return slides, pptx.stat().st_size / 1e6
+
+
 class _Renderer:
     work: Path
+
+    def to_pdf(self, pptx: Path, label: str) -> Path:
+        """PowerPoint's PDF of this deck. A job asks for the same content several times (the scan's
+        layout and its "before" images; a repair's last fit round, safety pass, re-scan and "after"
+        images): each distinct content is exported once per renderer."""
+        cache = self.__dict__.setdefault("_pdfs", {})
+        key = content_key(pptx)
+        if key in cache and cache[key].exists():
+            return cache[key]
+        with _render_lock():
+            pdf = self._export(pptx, label)
+        cache[key] = pdf
+        return pdf
 
     def page_image(self, pdf: Path, page: int, width: int = 960) -> bytes:
         """JPEG: a 30-slide report with PNGs was 15.7 MB; reports must open instantly on a show laptop."""
@@ -61,8 +185,30 @@ class _Renderer:
         shutil.rmtree(self.work, ignore_errors=True)
 
 
+STUCK_FILE = CONTAINER_TMP / "stuck.json"
+# Mac PowerPoint has no "open without a window", so SlideTistic keeps PowerPoint hidden (like ⌘H) while
+# it renders, but only when it launched PowerPoint itself or PowerPoint was already hidden: David's
+# own PowerPoint windows never vanish mid-work. Default on (David 2026-10-11); `--powerpoint-visible`
+# or SLIDETISTIC_PPT_HIDDEN=off turns it off if hidden renders ever stall on a dialog nobody can see.
+PPT_HIDDEN = os.environ.get("SLIDETISTIC_PPT_HIDDEN", "on") != "off"
+STUCK_MESSAGE = ("PowerPoint stopped responding. Save your work, quit PowerPoint (Force Quit if needed), "
+                 "then check the deck again")
+
+
 class MacPowerPointRenderer(_Renderer):
+    """Hang handling (2026-10-11: one export froze at "Processing slide 35 of 35" and every later
+    export queued behind it, 10 hours of timeouts):
+    - a time limit by deck size instead of a flat 5 minutes;
+    - after a hang, this process stops calling PowerPoint (`broken`, like Windows) and the next
+      process learns of it from STUCK_FILE;
+    - before rendering again, a 1-slide test export. If PowerPoint is still stuck and every open
+      presentation is one of OUR stuck copies (checked by their unique names, never by listing the
+      user's), PowerPoint is quit, force-quit if it won't. With anything of David's open, it's left
+      alone and the app tells him to save and quit.
+    - a hung export whose PDF is complete (every visible slide drawn) is still used."""
     name = "PowerPoint for Mac"
+    broken: str | None = None
+    force_quit_note: str | None = None      # shown once to the user if a force-quit was needed
 
     @staticmethod
     def available() -> tuple[bool, str]:
@@ -72,21 +218,54 @@ class MacPowerPointRenderer(_Renderer):
             return False, "PowerPoint isn't installed"
         if _poppler_missing():
             return False, "Poppler (pdftoppm, pdftotext) isn't installed"
+        if MacPowerPointRenderer.broken:
+            return False, MacPowerPointRenderer.broken
         return True, ""
 
     def __init__(self):
+        purge_leftovers()
         self.work = CONTAINER_TMP / uuid.uuid4().hex[:8]
         self.work.mkdir(parents=True, exist_ok=True)
 
-    def to_pdf(self, pptx: Path, label: str) -> Path:
-        tag = _unique_name(label)
-        src = self.work / f"{tag}.pptx"
-        pdf = self.work / f"{tag}.pdf"
-        shutil.copyfile(pptx, src)
+    @staticmethod
+    def _osa(script: str, timeout: float) -> subprocess.CompletedProcess | None:
+        try:
+            return subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return None
+
+    def _keep_hidden(self) -> bool:
+        """Should PowerPoint stay hidden for this render? Yes when it isn't running (it's launched here,
+        hidden) or it's already hidden; no when David has it in view. Best effort: if macOS refuses
+        (System Events permission declined), the render simply happens in view."""
+        if not PPT_HIDDEN:
+            return False
+        running = subprocess.run(["pgrep", "-x", "Microsoft PowerPoint"], capture_output=True).returncode == 0
+        if running:
+            vis = self._osa('tell application "System Events" to get visible of process "Microsoft PowerPoint"', 10)
+            if vis is None or vis.stdout.strip() != "false":
+                return False        # David's PowerPoint is in view: leave it alone
+        else:
+            self._osa('tell application "Microsoft PowerPoint" to launch', 60)
+        self._osa('tell application "System Events" to set visible of process "Microsoft PowerPoint" to false', 10)
+        return True
+
+    def _save_as_pdf(self, src: Path, pdf: Path, seconds: int) -> subprocess.CompletedProcess | None:
+        # Opening a document shows PowerPoint again a moment AFTER `open` returns (measured: ~1 s), so wait
+        # for the window, then hide; hide again after closing so the next render still sees it hidden.
+        hidden = self._keep_hidden()
+        rehide = ('try\n tell application "System Events" to tell process "Microsoft PowerPoint"\n'
+                  '  repeat 40 times\n   if (count of windows) > 0 then exit repeat\n   delay 0.025\n  end repeat\n'
+                  '  set visible to false\n end tell\nend try') if hidden else ""
+        hide_after = ('try\n tell application "System Events" to set visible of process "Microsoft PowerPoint" to false\n'
+                      'end try') if hidden else ""
         script = f'''
-        with timeout of 300 seconds
+        with timeout of {seconds} seconds
           tell application "Microsoft PowerPoint"
             open POSIX file "{src}"
+          end tell
+          {rehide}
+          tell application "Microsoft PowerPoint"
             -- The file just opened is the active one (its name is unique). Confirm by full path
             -- before touching it, and never enumerate or query the user's other presentations.
             set p to active presentation
@@ -94,11 +273,132 @@ class MacPowerPointRenderer(_Renderer):
             save p in ((POSIX file "{pdf}") as text) as save as PDF
             close p saving no
           end tell
+          {hide_after}
         end timeout'''
-        run = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=330)
-        if run.returncode or not pdf.exists():
+        return self._osa(script, seconds + 30)
+
+    def _export(self, pptx: Path, label: str) -> Path:
+        if MacPowerPointRenderer.broken:
+            raise RenderError(MacPowerPointRenderer.broken)
+        if STUCK_FILE.exists() and not self._recover():
+            MacPowerPointRenderer.broken = STUCK_MESSAGE
+            raise RenderError(STUCK_MESSAGE)
+        tag = _unique_name(label)
+        src = self.work / f"{tag}.pptx"
+        pdf = self.work / f"{tag}.pdf"
+        write_render_copy(pptx, src)      # media as stand-ins: same render, a fraction of the size
+        slides, mb = _deck_size(src)
+        seconds = int(min(300, 60 + 2 * slides + mb / 20))
+        run = self._save_as_pdf(src, pdf, seconds)
+        if run is not None and run.returncode == 0 and pdf.exists():
+            return pdf
+        hung = run is None or "-1712" in run.stderr       # AppleEvent timed out
+        if not hung:
             raise RenderError(f"PowerPoint couldn't export {pptx.name}: {run.stderr.strip()[:200]}")
-        return pdf
+        _mark_stuck(src)
+        salvaged = pdf.exists() and _pdf_complete(pdf, src)
+        if not self._recover():
+            MacPowerPointRenderer.broken = STUCK_MESSAGE
+            if not salvaged:
+                raise RenderError(STUCK_MESSAGE)
+        if salvaged:
+            return pdf
+        raise RenderError(f"PowerPoint took over {seconds} s on {pptx.name} and was restarted")
+
+    def _probe(self) -> bool:
+        """A 1-slide deck exports within 30 s: PowerPoint is answering."""
+        from pptx import Presentation
+        tag = _unique_name("probe")
+        src, pdf = self.work / f"{tag}.pptx", self.work / f"{tag}.pdf"
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(str(src))
+        run = self._save_as_pdf(src, pdf, 30)
+        if run is not None and run.returncode == 0 and pdf.exists():
+            return True
+        _mark_stuck(src)
+        return False
+
+    def _recover(self) -> bool:
+        """True when PowerPoint can be used again. Quits it only when it's stuck and everything open
+        in it is SlideTistic's own stuck copies."""
+        import json
+        import time
+        if self._probe():
+            STUCK_FILE.unlink(missing_ok=True)
+            return True
+        try:
+            copies = json.loads(STUCK_FILE.read_text(encoding="utf-8")).get("copies", [])
+        except (OSError, ValueError):
+            copies = []
+        count = self._osa('with timeout of 10 seconds\ntell application "Microsoft PowerPoint" to count presentations\n'
+                          'end timeout', 20)
+        if count is None or count.returncode or not count.stdout.strip().isdigit():
+            return False
+        ours = 0
+        for c in copies:            # by our unique random names only: never look at David's decks
+            name = Path(c).name
+            r = self._osa(f'with timeout of 10 seconds\ntell application "Microsoft PowerPoint" to '
+                          f'exists presentation "{name}"\nend timeout', 20)
+            ours += r is not None and r.stdout.strip() == "true"
+        if int(count.stdout.strip()) > ours:
+            return False            # something of David's is open: never quit his PowerPoint
+        # Patient first (2026-10-11: a force-quit makes macOS show Microsoft's crash report). Close just
+        # our stuck copies, by their unique random names, and test again.
+        for c in copies:
+            self._osa(f'with timeout of 20 seconds\ntell application "Microsoft PowerPoint" to '
+                      f'close presentation "{Path(c).name}" saving no\nend timeout', 30)
+        if self._probe():
+            STUCK_FILE.unlink(missing_ok=True)
+            return True
+        # Then ask it to quit and give it a minute to finish what it's doing.
+        self._osa('with timeout of 60 seconds\ntell application "Microsoft PowerPoint" to quit saving no\n'
+                  'end timeout', 70)
+        for _ in range(120):
+            if subprocess.run(["pgrep", "-x", "Microsoft PowerPoint"], capture_output=True).returncode:
+                break
+            time.sleep(0.5)
+        else:
+            # Last resort; macOS will show Microsoft's crash report, so say why.
+            MacPowerPointRenderer.force_quit_note = ("PowerPoint stopped responding and SlideTistic had to force-quit "
+                                                     "it (only SlideTistic's copies were open). If Microsoft's crash "
+                                                     "report appears, untick \"Recover work\" and click OK.")
+            subprocess.run(["pkill", "-9", "-x", "Microsoft PowerPoint"], capture_output=True)
+            time.sleep(2)
+        STUCK_FILE.unlink(missing_ok=True)
+        return self._probe()
+
+
+def _mark_stuck(src: Path) -> None:
+    """Remember a copy PowerPoint is stuck on (it stays open in PowerPoint), for this and later runs."""
+    import json
+    import time
+    try:
+        data = json.loads(STUCK_FILE.read_text(encoding="utf-8")) if STUCK_FILE.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    data.setdefault("since", time.time())
+    data["copies"] = sorted(set(data.get("copies", [])) | {str(src)})
+    STUCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STUCK_FILE.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _pdf_complete(pdf: Path, deck: Path) -> bool:
+    """A PDF from a hung export is used only if it ends properly and has a page for every visible
+    slide (a short PDF would make later pages' words look missing: false "off the slide" reds)."""
+    import re
+    import zipfile
+    try:
+        if not pdf.read_bytes()[-1024:].rstrip().endswith(b"%%EOF"):
+            return False
+        with zipfile.ZipFile(deck) as z:
+            visible = sum(1 for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)
+                          and b'show="0"' not in z.read(n)[:400])
+        out = subprocess.run([tools.find("pdftotext") or "pdftotext", "-bbox", str(pdf), "-"],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        return out.returncode == 0 and out.stdout.count("<page ") == visible
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 # --- Windows ---------------------------------------------------------------------------------------
@@ -267,6 +567,7 @@ class WindowsPowerPointRenderer(_Renderer):
         return True, ""
 
     def __init__(self):
+        purge_leftovers()
         self.work = Path(tempfile.gettempdir()) / "slidetistic" / uuid.uuid4().hex[:8]
         self.work.mkdir(parents=True, exist_ok=True)
         self._app = None
@@ -354,11 +655,11 @@ class WindowsPowerPointRenderer(_Renderer):
             except Exception:
                 pass
 
-    def to_pdf(self, pptx: Path, label: str) -> Path:
+    def _export(self, pptx: Path, label: str) -> Path:
         tag = _unique_name(label)
         src = self.work / f"{tag}.pptx"
         pdf = self.work / f"{tag}.pdf"
-        shutil.copyfile(pptx, src)
+        write_render_copy(pptx, src)      # media as stand-ins: same render, a fraction of the size
 
         def export():
             import pywintypes

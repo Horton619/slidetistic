@@ -35,6 +35,10 @@ def main(argv=None) -> int:
                         help="override a value from rules/thresholds.yaml for this run (e.g. safe_zone_pct=7)")
         sp.add_argument("--no-diagnostic", action="store_true", help="hide the rule behind each call in the report")
         sp.add_argument("--review-dir", help="write the app's review bundle (review.json + slide images) here")
+        sp.add_argument("--powerpoint-visible", action="store_true",
+                        help="Mac: don't hide PowerPoint while it renders (default: hidden when SlideTistic starts it)")
+        sp.add_argument("--shape-cache", choices=("on", "off", "check"),
+                        help="remember shape lists between edits (default on; 'check' verifies every reuse)")
         if name == "repair":
             sp.add_argument("--no-report", action="store_true", help="skip the HTML report")
             sp.add_argument("--no-visual", action="store_true", help="report without before/after images (faster)")
@@ -48,6 +52,10 @@ def main(argv=None) -> int:
     us.add_argument("--review-dir", help="update this review bundle (re-renders the slide's 'after' image)")
     us.add_argument("--json", action="store_true")
 
+    cl = sub.add_parser("cleanup", help="delete PowerPoint work files left by finished or killed jobs")
+    cl.add_argument("--all", action="store_true", help="every leftover, not just ones over 6 hours old")
+    cl.add_argument("--json", action="store_true")
+
     md = sub.add_parser("media", help="media inventory + download list")
     md.add_argument("file")
     md.add_argument("--csv", help="write the inventory to this .csv (download list goes beside it)")
@@ -55,6 +63,12 @@ def main(argv=None) -> int:
     md.add_argument("--json", action="store_true")
 
     args = p.parse_args(argv)
+    if getattr(args, "powerpoint_visible", False):
+        from . import render as render_module
+        render_module.PPT_HIDDEN = False
+    if getattr(args, "shape_cache", None):
+        from .core import deck as deck_module
+        deck_module.SHAPE_CACHE = args.shape_cache
     checks = registry.discover()
 
     if args.cmd == "list-checks":
@@ -64,6 +78,12 @@ def main(argv=None) -> int:
         else:
             for m in meta:
                 print(f"{m['id']}  {m['title']}  [{m['group']}]  fix={'on' if m['default_fix'] else 'off'}")
+        return 0
+
+    if args.cmd == "cleanup":
+        from .render import purge_leftovers
+        freed = purge_leftovers(everything=args.all)
+        print(json.dumps({"type": "cleanup", "freed_bytes": freed}) if args.json else f"Freed {freed / 1e6:.1f} MB")
         return 0
 
     path = Path(args.file)
@@ -113,6 +133,9 @@ def main(argv=None) -> int:
         report = _write_report(result, checks, config, args, emit)
     finally:
         runner.cleanup()
+    from .render import MacPowerPointRenderer
+    if MacPowerPointRenderer.force_quit_note:
+        emit({"type": "warn", "message": MacPowerPointRenderer.force_quit_note})
     if not args.json:
         _print_human(result)
         if report:
@@ -135,15 +158,22 @@ def _write_report(result, checks, config, args, emit) -> Path | None:
     if not getattr(args, "no_visual", False) and (result.output_path or args.report or review_dir):
         ok, why = PowerPointRenderer.available()
         if ok:
+            if review_dir:      # findings first: the app shows them while PowerPoint draws the slides
+                path = bundle.write(result, checks, config, review_dir, prefit=config.prefit_path, pending=True)
+                emit({"type": "review", "path": str(path), "partial": True})
             emit({"type": "progress", "stage": "render"})
-            renderer = PowerPointRenderer()
+            # The layout pass's renderer still holds this job's PDFs (runner.cleanup() runs after the
+            # report): reusing it skips re-exporting decks it already drew.
+            shared = runner._RENDERER
+            renderer = shared or PowerPointRenderer()
             try:
                 visuals = visual.plan(result, result.input_path, result.output_path)
                 visual.render(visuals, result.input_path, result.output_path, renderer, image_dir=review_dir)
             except (RenderError, OSError) as e:
                 visuals, note = None, f"Visual review skipped: {e}"
             finally:
-                renderer.cleanup()
+                if renderer is not shared:
+                    renderer.cleanup()
         else:
             note = f"Visual review skipped: {why}."
     elif args.cmd == "repair":

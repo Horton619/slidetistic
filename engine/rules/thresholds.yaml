@@ -23,5 +23,14 @@ fit_min_line_spacing_pct: 85    # fit fixes never tighten line spacing below thi
 fit_max_font_shrink_pct: 15     # last resort: font may shrink at most this much (David 2026-10-10: raised from 10)
 orphan_max_words: 1             # a paragraph's last line with this many words or fewer is an orphan
 orphan_min_paragraph_words: 6   # shorter paragraphs (titles, labels: "Board of / Directors") are never orphans
+overlap_max_per_slide: 12        # L010: more text-over-text collisions than this on one slide → one finding, no fix attempts
 overlap_min_pt: 2               # L010/L011: overlaps thinner than this (in points) are ignored
+fit_wrap_band_pct: 1             # fit prediction: PowerPoint's real text width is the box's text area ± this % (a fix must work at both ends)
+fit_max_attempts_per_box: 2      # a box still showing the same layout problem after this many changes goes back as it was
+fit_time_budget_s: 120           # layout fixing stops starting new fixes after this long (the safety check still runs)
 fit_max_rounds: 6               # repair re-renders and re-checks layout at most this many times
+compress_target_width_px: 2000  # M013: a full-width picture keeps this many pixels (PowerPoint's 150 ppi on a 13.33 in slide, a 1080p screen)
+compress_jpeg_quality: 85       # M013: JPEG quality for resized photos
+compress_pitch_min_pct: 25      # M013: suggest compressing when the deck would shrink by at least this %…
+compress_pitch_min_mb: 5        # …and at least this many MB
+video_max_height_px: 1080       # M012: videos taller than this get flagged for re-encoding to 1080p

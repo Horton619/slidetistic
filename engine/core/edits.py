@@ -81,6 +81,13 @@ class EditSession:
             parent.replace(old, new)
         self._log(Change(self.check_id, None, None, None, prop, before, after, part=partname))
 
+    def replace_blob(self, part, blob: bytes, *, prop: str, before: str, after: str):
+        """Swap a binary part's bytes (a picture's image data, e.g. compression)."""
+        partname = str(part.partname)
+        self._claim((partname, "blob"))
+        part._blob = blob
+        self._log(Change(self.check_id, None, None, None, prop, before, after, part=partname))
+
     def drop_rel(self, part, r_id: str, *, prop: str, before: str):
         """Remove a relationship. Its target part is left out of the saved file if nothing else uses it."""
         partname = str(part.partname)
@@ -100,6 +107,7 @@ class EditSession:
 
     def _log(self, change: Change):
         self.changes.append(change)
+        self.deck.invalidate()          # every edit goes through here: remembered shape lists are stale
 
 
 def _set(element, attr: str, value: str | None):

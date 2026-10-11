@@ -112,6 +112,23 @@ A run takes ~3 min for ~66 decks. It always fails on a crashed check, a repair t
 or a second repair that still changes something. The "corpus diff" section at the end is what to report
 to David; only run `--update-snapshots` after he accepts it.
 
+## Optimization round (2026-10-11): what to keep true
+
+- **Shape cache** (`deck.SHAPE_CACHE`, `--shape-cache on|off|check`, app: Diagnostics): slide shape lists are
+  remembered between edits. Every edit goes through `EditSession._log`, which calls `deck.invalidate()`; anything
+  that changes slide XML outside EditSession (like `runner._revert_slide`) must call it too. Run tests with
+  `SLIDETISTIC_SHAPE_CACHE=check` after touching edit paths: a stale reuse stops the run.
+- **Fit loop:** one change per slide per round; rounds 2+ only re-check slides the last round changed
+  (`ctx.slide_numbers(deck)` in every layout check); a box gets `fit_max_attempts_per_box` tries then goes back;
+  `fit_time_budget_s` caps fixing; animated text (`playback.animated_shape_ids`) is never "text over text".
+- **Render copies:** PowerPoint is handed decks with media stand-ins (`engine/assets/media_stubs`, pixel-identical
+  renders, verified 2026-10-11). The deck David gets back always keeps the real media. Renders are cached per job
+  by `render.content_key` (zip directory, media by name only).
+- **Mac renderer:** one export at a time across processes (`_render_lock`), hidden PowerPoint by default
+  (`--powerpoint-visible`), hang recovery that never touches David's decks (count + our unique names only).
+- **Temp files:** `cli cleanup [--all]`; renderers purge leftovers over 6 h; the app clears review bundles at
+  launch and when a deck leaves the queue.
+
 ## Packaging (phase 3)
 
 ```

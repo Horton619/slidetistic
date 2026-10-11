@@ -12,6 +12,48 @@ from pptx.oxml.ns import qn
 from .geometry import Bounds, Transform
 from .shapes import GROUP, classify, has_text
 
+# Remember each slide's shape list between edits (David 2026-10-11, optimization round: PAT 23 layout
+# repair 42 s → 16 s). "on" (default), "off", or "check": every cached answer is compared with a fresh
+# walk and a mismatch stops the run (suite/test mode, proves nothing reads a stale list). Set by
+# `--shape-cache` or SLIDETISTIC_SHAPE_CACHE. Any edit outside EditSession must call invalidate().
+SHAPE_CACHE = os.environ.get("SLIDETISTIC_SHAPE_CACHE", "on")
+
+
+class StaleShapeCache(AssertionError):
+    pass
+
+
+# Render copies (David 2026-10-11): PowerPoint draws a video or sound as its poster image, a separate
+# picture part, so the copies SlideTistic hands PowerPoint carry a tiny valid stand-in of the same
+# format instead of the real media. Renders are identical and a 500 MB deck saves and opens in a
+# moment. The deck David gets back always keeps the real files.
+MEDIA_STUBS = Path(__file__).resolve().parent.parent / "assets" / "media_stubs"
+_STUB_EXT = {p.suffix.lower() for p in MEDIA_STUBS.glob("stub.*")}
+_STORED_EXT = _STUB_EXT | {".jpg", ".jpeg", ".png", ".gif", ".mpeg", ".m4v"}   # already compressed
+
+
+def stub_for(member: str) -> bytes | None:
+    """The stand-in for a media file inside a deck, or None to keep it."""
+    ext = Path(member).suffix.lower()
+    if member.startswith("ppt/media/") and ext in _STUB_EXT:
+        return (MEDIA_STUBS / f"stub{ext}").read_bytes()
+    return None
+
+
+def compression_for(member: str) -> int:
+    import zipfile
+    return zipfile.ZIP_STORED if Path(member).suffix.lower() in _STORED_EXT else zipfile.ZIP_DEFLATED
+
+
+def write_render_copy(src: Path, dst: Path) -> None:
+    """Copy a deck for PowerPoint to draw: media swapped for stand-ins, compressed media stored."""
+    import zipfile
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", strict_timestamps=False) as zout:
+        for info in zin.infolist():
+            stub = stub_for(info.filename)
+            zout.writestr(info.filename, stub if stub is not None else zin.read(info),
+                          compress_type=compression_for(info.filename))
+
 
 @dataclass
 class ShapeView:
@@ -45,6 +87,11 @@ class Deck:
         # python-pptx keeps some XML parts (theme, presProps) as raw bytes. We parse them on
         # demand and write them back in save(), so edits to them go through the same path.
         self._blob_roots: dict[str, tuple[object, etree._Element]] = {}
+        self._shape_memo: dict[int, list[ShapeView]] = {}
+
+    def invalidate(self):
+        """The deck's XML changed: forget the remembered shape lists."""
+        self._shape_memo.clear()
 
     @property
     def slide_width(self) -> int:
@@ -64,6 +111,8 @@ class Deck:
 
     def iter_shapes(self) -> list[ShapeView]:
         """Every shape on every slide, groups included, children of groups flattened in."""
+        if SHAPE_CACHE != "off":
+            return [sv for n in range(1, len(self.slides) + 1) for sv in self.slide_shapes(n)]
         out: list[ShapeView] = []
         for i, slide in enumerate(self.slides):
             self._walk(i, slide.shapes, Transform(), 0, out)
@@ -97,8 +146,19 @@ class Deck:
         slides = self.slides
         if not 1 <= slide_number <= len(slides):
             return []
+        if SHAPE_CACHE != "off" and slide_number in self._shape_memo:
+            hit = self._shape_memo[slide_number]
+            if SHAPE_CACHE == "check":
+                fresh: list[ShapeView] = []
+                self._walk(slide_number - 1, slides[slide_number - 1].shapes, Transform(), 0, fresh)
+                if [_facts(sv) for sv in fresh] != [_facts(sv) for sv in hit]:
+                    raise StaleShapeCache(f"slide {slide_number}: remembered shapes differ from the deck")
+            return list(hit)
         out: list[ShapeView] = []
         self._walk(slide_number - 1, slides[slide_number - 1].shapes, Transform(), 0, out)
+        if SHAPE_CACHE != "off":
+            self._shape_memo[slide_number] = out
+            return list(out)
         return out
 
     def find_shape(self, slide_number: int, shape_id: int) -> ShapeView | None:
@@ -128,13 +188,29 @@ class Deck:
                 return i + 1
         return None
 
-    def save(self, out_path: str | os.PathLike) -> Path:
-        """Atomic: write to a temp name beside the target, then rename over it."""
+    def save(self, out_path: str | os.PathLike, render_copy: bool = False) -> Path:
+        """Atomic: write to a temp name beside the target, then rename over it. `render_copy`: a copy
+        only PowerPoint will draw (fit rounds): media written as stand-ins, see write_render_copy."""
         for part, root in self._blob_roots.values():
             part._blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         out_path = Path(out_path)
         tmp = out_path.with_name(out_path.name + ".partial")
-        self.prs.save(str(tmp))
+        if render_copy:
+            from pptx.opc import serialized
+            original = serialized._ZipPkgWriter.write
+
+            def write(writer, pack_uri, blob):
+                name = pack_uri.membername
+                stub = stub_for(name)
+                writer._zipf.writestr(name, stub if stub is not None else blob, compress_type=compression_for(name))
+
+            serialized._ZipPkgWriter.write = write
+            try:
+                self.prs.save(str(tmp))
+            finally:
+                serialized._ZipPkgWriter.write = original
+        else:
+            self.prs.save(str(tmp))
         os.replace(tmp, out_path)
         return out_path
 
@@ -150,3 +226,11 @@ def _xfrm(shape):
         if found is not None:
             return found
     return None
+
+
+def _facts(sv: ShapeView) -> tuple:
+    """What a check reads from a ShapeView, for the cache's check mode."""
+    from lxml import etree as _et
+    return (sv.shape_id, sv.kind, sv.bounds, sv.group_depth, sv.rotation, sv.flipped, sv.text_bearing,
+            _et.tostring(sv.shape.element))
+

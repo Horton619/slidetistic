@@ -31,6 +31,8 @@ const DEFAULTS = {
   suffix: ' - mended',
   safeZonePct: 5,
   quickRepair: false,          // true = skip layout fixes + visual review
+  shapeCache: true,
+  hidePowerPoint: true,        // Mac: keep PowerPoint hidden while rendering (when SlideTistic started it)            // Diagnostics: remember shape lists between edits (off = slower, the pre-0.4.1 way)
   crewFonts: '',               // one per line
   skin: 'pro',
   showWhy: true,               // diagnostic mode: the rule behind each call
@@ -171,6 +173,8 @@ function commonArgs(opts) {
   if (crew.length) a.push('--crew-fonts', crew.join(','));
   if (opts.checks) a.push('--checks', opts.checks.join(','));
   if (opts.preset) a.push('--preset', opts.preset);
+  if (settings.shapeCache === false) a.push('--shape-cache', 'off');
+  if (isMac && settings.hidePowerPoint === false) a.push('--powerpoint-visible');
   return a;
 }
 
@@ -281,6 +285,47 @@ ipcMain.handle('engine:undoSlide', (_e, deckId, mended, slide) => {
 ipcMain.handle('engine:cancel', (_e, deckId) => {
   for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].deckId === deckId) jobs.splice(i, 1);
   if (running && running.deckId === deckId && running.child) { running.cancelled = true; running.child.kill(); }
+});
+
+// --- temporary files: review bundles (slide images + a pre-fit copy of each repaired deck) and the
+// engine's PowerPoint work folders. Automatic: review bundles are cleared at launch (the queue isn't
+// kept between launches) and when a deck leaves the queue; the engine clears work folders over 6 h old
+// whenever it renders. Manual: Settings → Diagnostics → Clear now.
+const reviewsRoot = () => path.join(app.getPath('userData'), 'reviews');
+const renderWorkRoots = () => (isMac
+  ? [path.join(os.homedir(), 'Library/Containers/com.microsoft.Powerpoint/Data/tmp/slidetistic')]
+  : [path.join(os.tmpdir(), 'slidetistic')]);
+
+function folderBytes(dir) {
+  let total = 0;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return 0; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    try { total += e.isDirectory() ? folderBytes(p) : fs.statSync(p).size; } catch (_) { /* vanished */ }
+  }
+  return total;
+}
+
+function clearReviews(keepIds = []) {
+  let entries = [];
+  try { entries = fs.readdirSync(reviewsRoot()); } catch (_) { return; }
+  for (const id of entries) if (!keepIds.includes(id)) fs.rmSync(path.join(reviewsRoot(), id), { recursive: true, force: true });
+}
+
+ipcMain.handle('temp:size', () => ({
+  bytes: folderBytes(reviewsRoot()) + renderWorkRoots().reduce((n, d) => n + folderBytes(d), 0),
+}));
+ipcMain.handle('temp:clear', (_e, keepIds = []) => new Promise((resolve) => {
+  clearReviews(keepIds);
+  const { cmd, args, cwd, env } = engineCommand(['cleanup', '--all', '--json']);
+  execFile(cmd, args, { cwd, env }, (err) => {
+    if (err) log('warn', 'cleanup', err.message);
+    resolve({ bytes: folderBytes(reviewsRoot()) + renderWorkRoots().reduce((n, d) => n + folderBytes(d), 0) });
+  });
+}));
+ipcMain.handle('review:discard', (_e, deckId) => {
+  if (/^d\d+$/.test(String(deckId))) fs.rmSync(reviewDir(deckId), { recursive: true, force: true });
 });
 
 ipcMain.handle('review:load', (_e, deckId) => {
@@ -454,6 +499,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   settings = loadSettings();
+  clearReviews();          // last session's queue is gone, so are its review bundles
   createWindow();
   startWatching();
   setupUpdater();

@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT))      # collect_submodules imports `engine` to list
 # disk, so both folders ship as real files. Checks are imported dynamically, so PyInstaller can't see
 # what they import: collect every engine module up front.
 datas = [(str(ROOT / "engine" / "checks"), "engine/checks"),
-         (str(ROOT / "engine" / "rules"), "engine/rules")]
+         (str(ROOT / "engine" / "rules"), "engine/rules"),
+         (str(ROOT / "engine" / "assets"), "engine/assets")]
 hidden = collect_submodules("engine")
 assert any(m.startswith("engine.checks.") for m in hidden), "engine modules not found"
 

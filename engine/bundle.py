@@ -12,7 +12,10 @@ from pathlib import Path
 from . import __version__, export, visual
 
 
-def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = "", prefit: Path | None = None) -> Path:
+def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = "", prefit: Path | None = None,
+          pending: bool = False) -> Path:
+    """`pending`: findings are final but the slide pictures are still being drawn (the app shows the
+    findings straight away and the pictures when the full bundle follows)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     findings = [f.to_dict() for f in result.findings]
     data = {
@@ -21,10 +24,13 @@ def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = ""
         "output": str(result.output_path) if result.output_path else None,
         "prefit": str(prefit) if prefit and prefit.exists() else None,
         "summary": result.summary(),
+        "input_mb": round(Path(result.input_path).stat().st_size / 1e6, 1),
+        "output_mb": round(Path(result.output_path).stat().st_size / 1e6, 1) if result.output_path and Path(result.output_path).exists() else None,
         "source": next(({"kind": f.subject, "message": f.message} for f in result.findings if f.check_id == "X001"), None),
         "findings": findings,
         "changes": [c.to_dict() for c in result.changes],
         "visual_note": note,
+        "visuals_pending": pending,
         "visuals": [dict(asdict(v), tier=v.tier, tier_label=visual.TIERS[v.tier]) for v in (visuals or [])],
         "kinds": visual.KIND_LABEL,
         "inventory": export.inventory_rows(result.findings),

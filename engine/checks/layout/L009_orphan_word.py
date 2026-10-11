@@ -12,7 +12,7 @@ class OrphanWord(Check):
     requires = ["layout"]
     sources = ["any"]
     runs_after = ["L001", "L010"]
-    thresholds = ["orphan_max_words", "orphan_min_paragraph_words"] + ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
+    thresholds = ["fit_wrap_band_pct", "orphan_max_words", "orphan_min_paragraph_words"] + ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
 
     def detect(self, deck, ctx):
         if ctx.layout is None:
@@ -21,7 +21,7 @@ class OrphanWord(Check):
         shortest = self.threshold(ctx, "orphan_min_paragraph_words")
         names = {(sv.slide_number, sv.shape_id): sv.name for sv in deck.iter_shapes()}
         findings = []
-        for n in range(1, len(deck.slides) + 1):
+        for n in ctx.slide_numbers(deck):
             for sid, st in ctx.layout.slide(n).items():
                 by_para: dict[int, list] = {}
                 for line, p in zip(st.lines, st.paragraph_of_line):
@@ -65,7 +65,8 @@ class OrphanWord(Check):
                             obstacle_boxes=fit.obstacles(deck, finding.slide, sv.shape_id, st.lines),
                             narrow_pct=15, widen_pct=int(self.threshold(ctx, "body_widen_max_pct")),
                             accept=lambda o, t: o < max(1, orphans_now) and t <= lines_now
-                            and (limit is None or t <= limit))
+                            and (limit is None or t <= limit),
+                            band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
         if not plan or not fit.apply(edits, sv, plan, "remove a single-word line"):
             raise FixRefused("no box width from −15 % to +"
                              f"{self.threshold(ctx, 'body_widen_max_pct')} % fixes it without adding a line, "

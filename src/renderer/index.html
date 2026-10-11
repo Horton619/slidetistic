@@ -58,6 +58,7 @@
         <div class="source" id="source" hidden></div>
         <div class="alert" id="alert" hidden></div>
         <div class="media-banner" id="media-banner" hidden></div>
+        <div class="compress-banner" id="compress-banner" hidden></div>
         <div class="saved" id="saved" hidden></div>
         <nav class="tabs" id="tabs">
           <button data-tab="review">Review</button>
@@ -115,7 +116,10 @@
       </div>
       <div class="set" id="set-diag" hidden>
         <label class="check"><input type="checkbox" id="s-why"> Show the rule behind every call (testing mode)</label>
+        <label class="check mac-only"><input type="checkbox" id="s-hideppt"> Keep PowerPoint hidden while checking <span class="note">PowerPoint works out of sight when SlideTistic starts it (Mac). Untick if checks stall: a PowerPoint prompt may be waiting where you can't see it.</span></label>
+        <label class="check"><input type="checkbox" id="s-shapecache"> Fast shape lookups <span class="note">Remembers each slide's shapes between fixes (much faster layout repair). Untick if repairs ever look wrong, and tell David.</span></label>
         <div class="diag" id="diag"></div>
+        <div class="row"><button class="btn" id="d-temp-clear">Clear temporary files</button><span class="note" id="d-temp">Temporary files: measuring…</span></div>
         <div class="row"><button class="btn" id="d-update">Check for updates</button><span class="note" id="d-update-status"></span></div>
         <div class="update-progress" id="d-update-bar" hidden><i></i></div>
         <pre class="log" id="d-log"></pre>

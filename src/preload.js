@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('slidetistic', {
   undoSlide: (deckId, mended, slide) => ipcRenderer.invoke('engine:undoSlide', deckId, mended, slide),
   cancel: (deckId) => ipcRenderer.invoke('engine:cancel', deckId),
   loadReview: (deckId) => ipcRenderer.invoke('review:load', deckId),
+  discardReview: (deckId) => ipcRenderer.invoke('review:discard', deckId),
+  tempSize: () => ipcRenderer.invoke('temp:size'),
+  clearTemp: (keepIds) => ipcRenderer.invoke('temp:clear', keepIds),
   onEngineEvent: (cb) => listen('engine:event', cb),
 
   // outputs

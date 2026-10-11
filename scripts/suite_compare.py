@@ -129,8 +129,10 @@ def main():
                     notes.append(msg + " (known open: layout fixes don't settle in one repair)")
                 else:
                     problems.append(f"**{msg}**")
+            other_w = (b if d is a else a).get("repair", {}).get("warnings", [])
             for w in d.get("repair", {}).get("warnings", []):
-                notes.append(f"{side} warning: {w}")
+                if w not in other_w:        # the same warning on both sides isn't a difference
+                    notes.append(f"{side} warning: {w}")
         for step in ("scan", "repair"):
             ea, ra_ = split(a.get(step, {}).get("findings", []), layout)
             eb, rb_ = split(b.get(step, {}).get("findings", []), layout)
@@ -155,7 +157,8 @@ def main():
         if ca_ != cb_:
             notes.append(f"changes made: {A} {ca_} · {B} {cb_}")
         bugs += bool(problems)
-        status = "**differs**" if problems else ("drawn differs" if notes else "same")
+        differs = [n for n in notes if ": both refused it: " not in n]
+        status = "**differs**" if problems else ("drawn differs" if differs else "same")
         summary.append(f"| {a['deck']} | {status} | {secs(a, 'repair')} | {secs(b, 'repair')} |")
         if problems or notes:
             sections += ["", f"### {a['deck']}", ""] + [f"- {p}" for p in problems] + [f"- _{n}_" for n in notes]

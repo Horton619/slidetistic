@@ -92,6 +92,10 @@ function optionsFor(deck) {
     if (o.check ?? c.default_check) checks.push(c.id);
     if (!c.report_only && (o.fix ?? c.default_fix) && (o.check ?? c.default_check)) fixes.push(c.id);
   }
+  // Compress pictures is chosen per deck from its banner (David 2026-10-11), not per preset.
+  if (deck.compress && !fixes.includes('M013')) fixes.push('M013');
+  if (deck.compress === false && fixes.includes('M013')) fixes.splice(fixes.indexOf('M013'), 1);
+  if (deck.compress && !checks.includes('M013')) checks.push('M013');
   return { checks, fixes, preset };
 }
 
@@ -123,6 +127,7 @@ function repairAll() {
 
 function removeDeck(deck) {
   if (deck.status === 'scanning' || deck.status === 'repairing') api.cancel(deck.id);
+  api.discardReview(deck.id);
   const i = S.decks.indexOf(deck);
   S.decks.splice(i, 1);
   if (S.sel === deck.id) S.sel = (S.decks[i] || S.decks[i - 1] || {}).id || null;
@@ -152,6 +157,12 @@ async function onEngineEvent(ev) {
   if (ev.type === 'requeued') { deck.stage = 'Waiting: a repair went first'; deck.progress = null; renderBusyOnly(deck); return; }
   if (ev.type === 'error') { deck.error = ev.message; return; }
   if (ev.type === 'warn') { toast(ev.message); return; }
+  if (ev.type === 'review' && ev.partial) {     // findings are in; the slide pictures follow
+    deck.version++;
+    await loadReview(deck);
+    render();
+    return;
+  }
   if (ev.type === 'undone') {
     deck.version++;
     await loadReview(deck);
@@ -279,6 +290,21 @@ function renderResults(deck) {
   $('alert').hidden = !off.length;
   if (off.length) $('alert').innerHTML = `✕ Text runs off the slide on slide${off.length > 1 ? 's' : ''} ${off.map((n) => `<a data-slide="${n}">${n}</a>`).join(', ')}. Fix before the show.`;
 
+  const cf = (data?.findings || []).find((f) => f.check_id === 'M013');
+  const cb = $('compress-banner');
+  cb.hidden = deck.status === 'error' || !cf;
+  if (cf) {
+    if (cf.status === 'green_fixed') {
+      cb.className = 'compress-banner done';
+      cb.innerHTML = `<b>Pictures compressed</b><span>${data.input_mb} MB → ${data.output_mb ?? '?'} MB, sized for a 1080p screen with cropped areas deleted.</span>`;
+    } else {
+      cb.className = `compress-banner${deck.compress ? ' on' : ''}`;
+      cb.innerHTML = `<div><b>This deck could be much smaller</b><span>${esc(cf.message.replace(/ Turn on Compress pictures to do it on repair\.$/, ''))}</span>` +
+        `<small>Like PowerPoint's Compress Pictures at 150 ppi with cropped areas deleted: no visible change on a 1080p screen, and the deck loads and plays snappier on weaker laptops.</small></div>` +
+        `<label class="switch"><input type="checkbox" data-compress ${deck.compress ? 'checked' : ''}> Compress pictures on repair</label>`;
+    }
+  }
+
   const m = deck.status === 'error' ? null : mediaSummary(data);
   const mb = $('media-banner');
   mb.hidden = !m;
@@ -327,10 +353,16 @@ function boxesHtml(boxes) {
   }).join('');
 }
 
-function frameHtml(deck, caption, name, boxes, slide) {
+// ▶ VIDEO / ♪ AUDIO badge on every clip (David 2026-10-11): where media plays, at a glance.
+function mediaHtml(media) {
+  return (media || []).map((m) => `<div class="media-badge${m.kind === 'audio' ? ' audio' : ''}" style="left:${m.left.toFixed(2)}%;top:${m.top.toFixed(2)}%;width:${m.width.toFixed(2)}%;height:${m.height.toFixed(2)}%" title="${esc(`${m.kind === 'audio' ? 'Audio' : 'Video'}: ${m.start}${m.linked ? ' · linked, not embedded' : ''}`)}">` +
+    `<span>${m.kind === 'audio' ? '♪ AUDIO' : '▶ VIDEO'}${m.start ? ` · ${esc(m.start)}` : ''}</span></div>`).join('');
+}
+
+function frameHtml(deck, caption, name, boxes, slide, media) {
   const url = imgUrl(deck, name);
   const inner = url ? `<img src="${url}" alt="${esc(caption)} slide ${slide}" draggable="false">` : '<div class="none">Not drawn (hidden slide)</div>';
-  return `<div><span class="cap">${esc(caption)}</span><div class="frame" data-fs="${slide}">${inner}${boxesHtml(boxes)}</div></div>`;
+  return `<div><span class="cap">${esc(caption)}</span><div class="frame" data-fs="${slide}">${inner}${mediaHtml(media)}${boxesHtml(boxes)}</div></div>`;
 }
 
 function renderReview(deck) {
@@ -338,6 +370,10 @@ function renderReview(deck) {
   const el = $('tab-review');
   if (!data) { el.innerHTML = '<p class="note">The review appears once the deck has been checked.</p>'; return; }
   const visuals = data.visuals || [];
+  if (data.visuals_pending) {
+    el.innerHTML = '<p class="note pending">Drawing the slides as PowerPoint shows them… The findings are ready in the Findings tab.</p>';
+    return;
+  }
   if (!visuals.length) {
     el.innerHTML = `<p class="note">${esc(data.visual_note || (deck.status === 'repaired' ? 'No slide changed visually.' : 'Nothing to show on the slides. See Findings.'))}</p>`;
     return;
@@ -361,8 +397,8 @@ function renderReview(deck) {
 function slideCard(deck, v, repaired) {
   const canUndo = repaired && deck.review.data.prefit && !v.undone && (v.after_boxes || []).some((b) => b.mode === 'changed');
   const pair = repaired
-    ? `<div class="pair">${frameHtml(deck, 'Before', v.before_png, v.before_boxes, v.slide)}${frameHtml(deck, v.undone ? 'After (layout changes undone)' : 'After', v.after_png, v.after_boxes, v.slide)}</div>`
-    : `<div class="single">${frameHtml(deck, 'As PowerPoint draws it', v.before_png, v.before_boxes, v.slide)}</div>`;
+    ? `<div class="pair">${frameHtml(deck, 'Before', v.before_png, v.before_boxes, v.slide, v.media)}${frameHtml(deck, v.undone ? 'After (layout changes undone)' : 'After', v.after_png, v.after_boxes, v.slide, v.media)}</div>`
+    : `<div class="single">${frameHtml(deck, 'As PowerPoint draws it', v.before_png, v.before_boxes, v.slide, v.media)}</div>`;
   return `<section class="slide ${v.undone ? 'undone' : ''}" id="slide-${v.slide}"><div class="slide-head"><b>Slide ${v.slide}</b>
     <button class="btn" data-fs="${v.slide}" title="Full screen (F)">⤢ Full screen</button>
     ${canUndo ? `<button class="btn" data-undo="${v.slide}" title="Put this slide back the way it was before layout fixes; font fixes stay">↶ Undo slide</button>` : ''}
@@ -475,16 +511,16 @@ function renderViewer() {
   $('v-mode').hidden = !repaired;
   let html;
   if (!repaired) {
-    html = `<div class="pane">${frameHtml(deck, 'As PowerPoint draws it', v.before_png, v.before_boxes, v.slide)}</div>`;
+    html = `<div class="pane">${frameHtml(deck, 'As PowerPoint draws it', v.before_png, v.before_boxes, v.slide, v.media)}</div>`;
     $('viewer-mode').textContent = '';
   } else if (S.viewer.mode === 'side') {
-    html = `<div class="pane">${frameHtml(deck, 'Before', v.before_png, v.before_boxes, v.slide)}</div>` +
-           `<div class="pane">${frameHtml(deck, v.undone ? 'After (undone)' : 'After', v.after_png, v.after_boxes, v.slide)}</div>`;
+    html = `<div class="pane">${frameHtml(deck, 'Before', v.before_png, v.before_boxes, v.slide, v.media)}</div>` +
+           `<div class="pane">${frameHtml(deck, v.undone ? 'After (undone)' : 'After', v.after_png, v.after_boxes, v.slide, v.media)}</div>`;
     $('viewer-mode').textContent = 'side by side';
   } else {
     const before = S.viewer.flipShow === 'before';
     html = `<div class="pane" style="max-width:1400px">${frameHtml(deck, before ? 'BEFORE' : 'AFTER', before ? v.before_png : v.after_png,
-            before ? v.before_boxes : v.after_boxes, v.slide)}</div>`;
+            before ? v.before_boxes : v.after_boxes, v.slide, v.media)}</div>`;
     $('viewer-mode').textContent = `flip view · showing ${before ? 'BEFORE' : 'AFTER'} (hold Space or press B)`;
   }
   $('viewer-stage').innerHTML = html;
@@ -538,16 +574,25 @@ function toast(msg) {
 // ---------------------------------------------------------------------------------------------
 // Settings
 
+const fmtMB = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
+function showTempSize(r) {
+  $('d-temp').textContent = `Temporary files: ${fmtMB(r.bytes)}. Slide pictures and undo copies for the decks in the queue are kept.`;
+}
+
 async function openSettings() {
   const s = S.settings;
   $('s-output').value = s.outputFolder || ''; $('s-suffix').value = s.suffix; $('s-safe').value = s.safeZonePct;
   $('s-quick').checked = !!s.quickRepair; $('s-watch').value = s.watchFolder || ''; $('s-crew').value = s.crewFonts || '';
   $('s-why').checked = !!s.showWhy;
+  $('s-shapecache').checked = s.shapeCache !== false;
+  $('s-hideppt').checked = s.hidePowerPoint !== false;
+  document.querySelectorAll('.mac-only').forEach((el) => { el.hidden = !isMac; });
   document.querySelectorAll('.skin').forEach((b) => b.classList.toggle('on', b.dataset.skin === s.skin));
   $('diag').innerHTML = `SlideTistic ${esc(S.info.version)} · ${esc(S.info.platform)} · PowerPoint ${S.info.powerpoint === null ? 'n/a' : S.info.powerpoint ? 'found' : 'not found (no visual review or layout fixes)'}<br>` +
     `${S.checks.length} checks: ${S.checks.map((c) => `${c.id} v${c.version}`).join(', ')}<br>Log: ${esc(S.info.logFile)}`;
   $('d-log').textContent = await api.logTail(120);
   $('settings').hidden = false;
+  showTempSize(await api.tempSize());
 }
 
 async function setSetting(key, value) {
@@ -600,6 +645,12 @@ function wireStatic() {
   $('btn-slidefluid').onclick = async () => { const r = await api.openSlideFluid(); if (r.error) toast(r.error); };
   $('vep').onclick = (e) => { e.preventDefault(); api.openExternal('https://veproductions.net'); };
   $('update-restart').onclick = () => api.installUpdate();
+  $('d-temp-clear').onclick = async () => {
+    const b = $('d-temp-clear');
+    b.disabled = true; b.textContent = 'Clearing…';
+    showTempSize(await api.clearTemp(S.decks.map((d) => d.id)));
+    b.disabled = false; b.textContent = 'Clear temporary files';
+  };
   $('update-dismiss').onclick = () => { $('update-banner').hidden = true; };
   $('d-update').onclick = () => api.checkForUpdate?.().catch?.(() => { $('d-update-status').textContent = 'Updates work in the installed app, not in development.'; });
 
@@ -617,6 +668,13 @@ function wireStatic() {
     const sl = t.closest('#alert [data-slide]'); if (sl) { jumpToSlide(Number(sl.dataset.slide)); return; }
     const ms = t.closest('#media-banner [data-slide]'); if (ms) { S.mediaSlide = Number(ms.dataset.slide); setTab('media'); return; }
     if (t.closest('[data-goto-media]')) { setTab('media'); return; }
+    if (t.matches('[data-compress]')) {
+      const d = selected(); if (!d) return;
+      d.compress = t.checked;
+      toast(t.checked ? 'Pictures will be compressed when you repair this deck.' : 'Pictures will be left as they are.');
+      render();
+      return;
+    }
     const fl = t.closest('[data-filter]'); if (fl) { S.filter = fl.dataset.filter; render(); return; }
     const md = t.closest('[data-media]'); if (md) { exportMedia(md.dataset.media); return; }
     const url = t.closest('[data-url]'); if (url) { api.openExternal(url.dataset.url); return; }
@@ -649,6 +707,8 @@ function wireStatic() {
     if (t.id === 's-quick') setSetting('quickRepair', t.checked);
     if (t.id === 's-crew') setSetting('crewFonts', t.value);
     if (t.id === 's-why') setSetting('showWhy', t.checked);
+    if (t.id === 's-shapecache') setSetting('shapeCache', t.checked);
+    if (t.id === 's-hideppt') setSetting('hidePowerPoint', t.checked);
   });
   $('s-output-pick').onclick = async () => { const p = await api.pickFolder(); if (p) { $('s-output').value = p; setSetting('outputFolder', p); } };
   $('s-output-clear').onclick = () => { $('s-output').value = ''; setSetting('outputFolder', ''); };

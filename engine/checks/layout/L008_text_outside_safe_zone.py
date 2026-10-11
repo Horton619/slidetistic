@@ -12,7 +12,7 @@ class TextOutsideSafeZone(Check):
     requires = ["layout"]
     sources = ["any"]
     runs_after = ["L001", "L010", "L009", "G001"]
-    thresholds = ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
+    thresholds = ["fit_wrap_band_pct", "safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct", "body_widen_max_pct"]
 
     def detect(self, deck, ctx):
         if ctx.layout is None:
@@ -22,7 +22,7 @@ class TextOutsideSafeZone(Check):
         mx, my = W * pct / 100, H * pct / 100
         names = {(sv.slide_number, sv.shape_id): sv.name for sv in deck.iter_shapes()}
         findings = []
-        for n in range(1, len(deck.slides) + 1):
+        for n in ctx.slide_numbers(deck):
             for sid, st in ctx.layout.slide(n).items():
                 if not st.bounds:
                     continue
@@ -65,7 +65,8 @@ class TextOutsideSafeZone(Check):
         widen = max(0, int(((safe[2] - safe[0]) / sv.bounds.width - 1) * 100))
         plan = fit.plan_fit(deck, sv, st, layout, safe, tol, move=True, obstacle_boxes=obs,
                             narrow_pct=15, widen_pct=widen, fonts=fonts, spacings=spacings,
-                            accept=lambda o, t: o <= orphans_now and (limit is None or t <= limit))
+                            accept=lambda o, t: o <= orphans_now and (limit is None or t <= limit),
+                            band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
         if plan and fit.apply(edits, sv, plan, "fit the safe zone"):
             return
         # Stacked title + body (PAT 2, 5, 23): push the text below down, if it has room, so the

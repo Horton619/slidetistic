@@ -220,3 +220,25 @@ tr.jump { cursor: pointer; } tr.jump:hover td { background: var(--surface); }
 .media-banner.y { background: rgba(255, 181, 71, .10); border-color: var(--amber); } .media-banner.y > .spk, .media-banner.y b { color: var(--amber); }
 .media-banner.r { background: rgba(255, 90, 95, .12); border-color: var(--red); } .media-banner.r > .spk, .media-banner.r b { color: var(--red); }
 tr.hl td { background: var(--accent-dim); }
+
+/* ▶ VIDEO badge over each clip in the review (media under the finding boxes, never blocking their tips) */
+.media-badge { position: absolute; pointer-events: auto; border: 2px dashed var(--blue); border-radius: 4px; }
+.media-badge span { position: absolute; left: 4px; top: 4px; background: var(--blue); color: #04060b; font: 700 11px/1.4 var(--font);
+  padding: 1px 6px; border-radius: 3px; white-space: nowrap; letter-spacing: .04em; }
+.media-badge.audio { border-color: var(--amber); } .media-badge.audio span { background: var(--amber); }
+
+.note.pending::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%;
+  border: 2px solid var(--accent); border-right-color: transparent; vertical-align: -1px; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .note.pending::before { animation: none; } }
+
+/* compression pitch (blue = info; accent outline when switched on; green once done) */
+.compress-banner { display: flex; align-items: center; gap: 14px; border: 1px solid var(--blue); background: rgba(91, 155, 255, .08);
+  border-radius: var(--radius); padding: 10px 12px; }
+.compress-banner[hidden] { display: none; }
+.compress-banner > div { flex: 1; min-width: 0; }
+.compress-banner b { display: block; color: var(--blue); }
+.compress-banner small { display: block; color: var(--dim); margin-top: 2px; }
+.compress-banner.on { border-color: var(--accent); background: var(--accent-dim); } .compress-banner.on b { color: var(--accent); }
+.compress-banner.done { border-color: var(--green); background: rgba(52, 211, 153, .08); } .compress-banner.done b { color: var(--green); margin-right: 8px; display: inline; }
+.compress-banner .switch { white-space: nowrap; font-weight: 600; cursor: pointer; display: flex; gap: 6px; align-items: center; }

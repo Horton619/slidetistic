@@ -106,6 +106,20 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
     edits.allow_refining(fit_ids)
     snapshots = {n: deepcopy(slide._element) for n, slide in enumerate(deck.slides, 1)}
     first_change = len(edits.changes)
+    # Per-box attempt limit (optimization round 2026-10-11): if a box still has the same problem after
+    # `fit_max_attempts_per_box` changes, PowerPoint isn't wrapping as predicted; put the box back as
+    # it was before the first attempt and stop, so a repair settles and a second repair changes nothing.
+    max_attempts = int(ctx.thresholds.get("fit_max_attempts_per_box", 2))
+    attempts: dict[tuple, list] = {}        # finding key → [(seq, shape XML before, changes made)]
+    gave_up: set[tuple] = set()
+    seq = 0
+    import time
+    # Hard time budget (David 2026-10-11: "55 minutes on one deck is insane"): after it, no new fix
+    # attempts start; findings are still detected and the safety check still runs.
+    deadline = time.monotonic() + float(ctx.thresholds.get("fit_time_budget_s", 120))
+    out_of_time = False
+    dirty: set[int] | None = None           # rounds 2+: the slides the previous round changed
+    seen_all: dict[int, set] = {}           # latest layout problems per slide (unchanged slides keep theirs)
     from ..render import RenderError
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,17 +127,44 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
             for rnd in range(1, rounds + 1):
                 emit({"type": "progress", "stage": "fit", "round": rnd, "rounds": rounds})
                 work = Path(tmp) / f"round{rnd}.pptx"
-                deck.save(work)
+                deck.save(work, render_copy=True)
                 layout = PdfLayout(deck, _RENDERER, path=work)
                 prefit = prefit or layout
-                rctx = replace(ctx, layout=layout)
-                touched, before = set(), len(edits.changes)
+                rctx = replace(ctx, layout=layout, only_slides=frozenset(dirty) if dirty is not None else None)
+                touched, did = set(), False
+                seen: dict[int, set] = {}       # this round's layout problems by slide (see below)
                 for cls in fitters:
                     check = cls()
                     edits.begin(cls)
-                    for f in check.detect(deck, rctx):
+                    found = check.detect(deck, rctx)
+                    if dirty is not None:       # a slide no fix touched last round has nothing new to find
+                        found = [f for f in found if f.slide in dirty]
+                    for f in found:
+                        if not f.informational and f.status in PROBLEM:
+                            seen.setdefault(f.slide, set()).add((f.check_id, f.shape_id, f.subject))
+                    for f in found:
                         if f.informational or f.status not in PROBLEM or f.slide in touched:
                             continue
+                        key = (f.check_id, f.slide, f.shape_id, f.subject)
+                        if key in gave_up:
+                            continue
+                        if time.monotonic() > deadline:
+                            if not out_of_time:
+                                emit({"type": "warn", "message": "Layout fixes hit their time limit; what's left is "
+                                                                 "listed to check by hand."})
+                            out_of_time = True
+                            outcome.setdefault(f.key, ("refused", "layout fixing ran out of time before this one"))
+                            continue
+                        if len(attempts.get(key, [])) >= max_attempts:
+                            _give_up_box(deck, edits, attempts, key)
+                            gave_up.add(key)
+                            outcome[f.key] = ("refused", "PowerPoint didn't re-wrap the text as predicted, "
+                                                         "so this box was left as it was")
+                            touched.add(f.slide)
+                            did = True
+                            continue
+                        sv = deck.find_shape(f.slide, f.shape_id) if f.shape_id is not None else None
+                        shape_before = deepcopy(sv.shape.element) if sv is not None else None
                         n = len(edits.changes)
                         try:
                             check.fix(deck, f, edits, rctx)
@@ -139,18 +180,35 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                                                   subject=f.subject, evidence={"exception": type(e).__name__}))
                         if len(edits.changes) > n:
                             touched.add(f.slide)
-                if len(edits.changes) == before:
+                            did = True
+                            seq += 1
+                            attempts.setdefault(key, []).append((seq, shape_before, edits.changes[n:]))
+                for n in (dirty if dirty is not None else range(1, len(deck.slides) + 1)):
+                    seen_all[n] = seen.get(n, set())
+                if not did:
+                    settled = (layout, {n: p for n, p in seen_all.items() if p})
                     break
+                if out_of_time:
+                    settled = None
+                    break
+                dirty = set(touched)
+            else:
+                settled = None
             if len(edits.changes) == first_change or prefit is None:
                 return
             emit({"type": "progress", "stage": "safety"})
-            final_path = Path(tmp) / "final.pptx"
-            deck.save(final_path)
-            final = PdfLayout(deck, _RENDERER, path=final_path)
+            problems: dict[int, dict[int, set]] = {}     # id(layout) → slide → problems, one detect() per render
+            if settled:
+                # The last round changed nothing, so the deck is exactly what that round rendered and
+                # checked: reuse its render and findings instead of saving, rendering and detecting again.
+                final, problems[id(settled[0])] = settled
+            else:
+                final_path = Path(tmp) / "final.pptx"
+                deck.save(final_path, render_copy=True)
+                final = PdfLayout(deck, _RENDERER, path=final_path)
             changed = {c.slide for c in edits.changes[first_change:] if c.slide} | {
                 n for n, slide in enumerate(deck.slides, 1)
                 if any(c.part == str(slide.part.partname) for c in edits.changes[first_change:])}
-            problems: dict[int, dict[int, set]] = {}     # id(layout) → slide → problems, one detect() per render
             for n in sorted(changed):
                 pre, post = _health(deck, prefit, n, ctx), _health(deck, final, n, ctx)
                 worse = [label for label, a, b in (("text off the slide", pre.off, post.off),
@@ -176,6 +234,29 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
         for n in sorted(changed):
             _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None,
                           why=f"PowerPoint stopped before this fix could be checked ({e}), so the slide was left as it was")
+
+
+def _give_up_box(deck, edits, attempts: dict, key: tuple) -> None:
+    """Put a box back the way it was before `key`'s first fix attempt, and drop the logged changes of
+    every layout attempt on that box since then (other checks' later changes to it are undone too)."""
+    _, slide, sid, _ = key
+    first_seq, before_el, _ = attempts[key][0]
+    sv = deck.find_shape(slide, sid)
+    if sv is not None and before_el is not None:
+        from copy import deepcopy
+        el = sv.shape.element
+        el.getparent().replace(el, deepcopy(before_el))
+        deck.invalidate()
+    drop = set()
+    for k in list(attempts):
+        if k[1] == slide and k[2] == sid:
+            kept = [a for a in attempts[k] if a[0] < first_seq]
+            drop |= {id(c) for a in attempts[k] if a[0] >= first_seq for c in a[2]}
+            if kept:
+                attempts[k] = kept
+            else:
+                del attempts[k]
+    edits.changes[:] = [c for c in edits.changes if id(c) not in drop]
 
 
 def _fit_problems(deck, fitters, layout, ctx, n, cache: dict | None = None) -> set:
@@ -247,6 +328,7 @@ def _revert_slide(deck, n, snapshot, edits, fit_ids, outcome, reason, why=None):
         el.remove(child)
     for child in deepcopy(snapshot):
         el.append(child)
+    deck.invalidate()
     partname = str(slide.part.partname)
     edits.changes[:] = [c for c in edits.changes
                         if not (c.check_id in fit_ids and (c.slide == n or c.part == partname))]

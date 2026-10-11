@@ -14,6 +14,12 @@ class Context:
     crew_fonts: set[str] = field(default_factory=set)   # casefolded; fonts installed on show machines
     layout: object = None   # LayoutProvider: the deck as PowerPoint draws it
     baseline_lines: dict = field(default_factory=dict)   # (slide, shape id) → lines in the ORIGINAL deck
+    only_slides: frozenset | None = None   # fit rounds 2+: only these slides changed (a speed hint)
+
+    def slide_numbers(self, deck):
+        """Slides a layout check should look at: all of them, or only the ones the last fit round
+        changed (a slide nothing touched renders and checks exactly as before)."""
+        return sorted(self.only_slides) if self.only_slides is not None else range(1, len(deck.slides) + 1)
 
 
 class Check:

@@ -11,19 +11,21 @@ class HeaderGainedALine(Check):
     default_fix = True          # David 2026-10-10: 1 line → 2 in a header breaks the design
     requires = ["layout"]
     sources = ["any"]
-    thresholds = ["safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct",
+    thresholds = ["fit_wrap_band_pct", "safe_zone_pct", "overlap_min_pt", "fit_max_font_shrink_pct", "fit_min_line_spacing_pct",
                   "body_widen_max_pct"]
 
     def detect(self, deck, ctx):
         if ctx.layout is None or not ctx.baseline_lines:
             return []
         findings = []
-        for n in range(1, len(deck.slides) + 1):
+        for n in ctx.slide_numbers(deck):
             layout = ctx.layout.slide(n)
             for sid, st in layout.items():
-                sv = deck.find_shape(n, sid)
                 was = ctx.baseline_lines.get((n, sid))
-                if not sv or was is None or len(st.lines) <= was or not fit.is_header(deck, sv, layout):
+                if was is None or len(st.lines) <= was:
+                    continue            # cheap test first: find_shape walks the slide
+                sv = deck.find_shape(n, sid)
+                if not sv or not fit.is_header(deck, sv, layout):
                     continue
                 findings.append(Finding(self.id, Status.RED,
                     f"Header now wraps to {len(st.lines)} lines; it was {was} in the original deck.",
@@ -46,6 +48,7 @@ class HeaderGainedALine(Check):
         plan = fit.plan_fit(deck, sv, st, layout, safe, self.threshold(ctx, "overlap_min_pt") * EMU_PER_PT,
                             narrow_pct=0, widen_pct=widen, fonts=fonts,
                             obstacle_boxes=fit.obstacles(deck, finding.slide, sv.shape_id, st.lines),
-                            accept=lambda o, t: t <= was)
+                            accept=lambda o, t: t <= was,
+                            band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
         if not plan or not fit.apply(edits, sv, plan, f"keep the header on {was} line(s)"):
             raise FixRefused(f"can't get it back to {was} line(s) within the safe zone and the font cap")
