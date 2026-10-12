@@ -45,6 +45,23 @@ def compression_for(member: str) -> int:
     return zipfile.ZIP_STORED if Path(member).suffix.lower() in _STORED_EXT else zipfile.ZIP_DEFLATED
 
 
+def replace_retrying(src, dst, wait: float = 10.0) -> None:
+    """os.replace that waits out a brief lock. On Windows, Dropbox, OneDrive or Defender can hold a file that
+    was just written, and renaming over it then fails with "Access is denied" (PC suite 2026-10-11: a repair
+    failed at its last step writing review.json into Dropbox). Retries for up to `wait` seconds."""
+    import time
+    deadline, delay = time.monotonic() + wait, 0.1
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 1.0)
+
+
 def write_render_copy(src: Path, dst: Path) -> None:
     """Copy a deck for PowerPoint to draw: media swapped for stand-ins, compressed media stored."""
     import zipfile
@@ -211,7 +228,7 @@ class Deck:
                 serialized._ZipPkgWriter.write = original
         else:
             self.prs.save(str(tmp))
-        os.replace(tmp, out_path)
+        replace_retrying(tmp, out_path)
         return out_path
 
     def part_blobs(self) -> dict[str, bytes]:

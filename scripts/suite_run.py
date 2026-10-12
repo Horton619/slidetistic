@@ -201,7 +201,10 @@ def run_deck(deck: Path, suite: Path, run_dir: Path, layout: bool, images: bool,
     with tempfile.TemporaryDirectory(prefix="st-suite-") as tmp:
         tmp = Path(tmp)
         rec["scan"] = summarize(run_cli(["scan", str(deck), "--json", *flags], timeout))
-        review = run_dir / "images" / key if images else tmp / "review"
+        # Always render the review locally, then copy the finished images in: the engine rewrites review.json
+        # (findings first, then images), and Dropbox holds the first copy open while it syncs it, so the
+        # rewrite failed with "Access is denied" when the review folder was inside the suite (PC, 2026-10-11).
+        review = tmp / "review"
         repair_args = ["repair", str(deck), "--json", "--out", str(tmp / "once.pptx"), "--review-dir", str(review), *flags]
         if not layout:
             repair_args.append("--no-visual")
@@ -216,8 +219,11 @@ def run_deck(deck: Path, suite: Path, run_dir: Path, layout: bool, images: bool,
         rec["media"] = {"inventory": inv.get("inventory", []), "downloads": inv.get("downloads", []),
                         "totals": inv.get("totals"), "exit": media["exit"]}
         if images and (review / "review.json").exists():
-            for junk in ("prefit.pptx", "report.html"):
-                (review / junk).unlink(missing_ok=True)       # keep the images + review.json only
+            dest = run_dir / "images" / key
+            dest.mkdir(parents=True, exist_ok=True)
+            for f in review.iterdir():
+                if f.is_file() and f.name not in ("prefit.pptx", "report.html"):   # images + review.json only
+                    shutil.copyfile(f, dest / f.name)
     (run_dir / "decks").mkdir(parents=True, exist_ok=True)
     write_json(run_dir / "decks" / f"{key}.json", rec)
     return rec

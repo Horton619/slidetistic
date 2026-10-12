@@ -317,6 +317,11 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
     and is no further into the safe border than it is now. With `move` (the safe-zone fix) it must end
     up fully inside the safe zone. (Requiring that of every fix blocked PAT 5's one-line title, which
     already sat a little into the top border.)"""
+    if not getattr(sv.shape, "has_text_frame", False):
+        # Tables and other graphic frames keep their text in cells, and their frame width doesn't size the
+        # columns: only moving the whole frame is a real option (PC suite 2026-10-11: L008 picked a smaller
+        # font for a table on Loop Lid slide 6 and crashed on "GraphicFrame has no text_frame").
+        fonts, spacings, narrow_pct, widen_pct = (1.0,), (1.0,), 0, 0
     sl, stop, sr, sb = safe
     W, H = deck.slide_width, deck.slide_height
     if not move and st.bounds:

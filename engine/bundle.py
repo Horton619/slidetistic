@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from . import __version__, export, visual
+from .core.deck import replace_retrying
 
 
 def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = "", prefit: Path | None = None,
@@ -42,5 +43,5 @@ def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = ""
     path = out_dir / "review.json"
     tmp = path.with_suffix(".partial")
     tmp.write_text(json.dumps(data, default=str), encoding="utf-8")
-    tmp.replace(path)
+    replace_retrying(tmp, path)        # Dropbox/Defender may briefly hold the new file
     return path

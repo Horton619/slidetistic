@@ -188,3 +188,21 @@ def test_unexpected_powerpoint_error_becomes_a_render_error(monkeypatch):
             r._call(lambda: {}["x"], 5)
     finally:
         r.cleanup()
+
+
+def test_rename_waits_out_a_brief_lock(tmp_path, monkeypatch):
+    # PC suite 2026-10-11: Dropbox held review.partial a moment; the rename to review.json failed the repair.
+    import os
+    from engine.core import deck as deck_mod
+    calls = []
+    real = os.replace
+
+    def flaky(a, b):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(5, "Access is denied")
+        real(a, b)
+    monkeypatch.setattr(deck_mod.os, "replace", flaky)
+    (tmp_path / "a.partial").write_text("x")
+    deck_mod.replace_retrying(tmp_path / "a.partial", tmp_path / "a.json", wait=5)
+    assert (tmp_path / "a.json").read_text() == "x" and len(calls) == 3
