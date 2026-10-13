@@ -584,8 +584,33 @@ function setupUpdater() {
   autoUpdater.on('error', (err) => status({ type: 'error', message: (err && err.message) || String(err) }));
   ipcMain.handle('update:check', () => autoUpdater.checkForUpdates());
   ipcMain.handle('update:download', () => autoUpdater.downloadUpdate());
-  ipcMain.on('update:install', () => autoUpdater.quitAndInstall());
+  ipcMain.on('update:install', () => {
+    // A copy macOS won't let us overwrite can't install: say so instead of a Restart button that does nothing
+    // (David 2026-10-12: 0.4.0 ran from Downloads, "translocated"; Squirrel refused the swap).
+    const where = placementProblem();
+    if (where) { status({ type: 'move-needed', where }); return; }
+    autoUpdater.quitAndInstall();
+  });
+  ipcMain.handle('app:moveToApplications', () => {
+    try {
+      return { ok: app.moveToApplicationsFolder({ conflictHandler: () => true }) };   // relaunches from /Applications
+    } catch (err) {
+      log('error', 'move to Applications', err.message);
+      return { error: err.message };
+    }
+  });
+  // Launch: a copy outside Applications can't update itself, so offer the move before anything is downloaded.
+  setTimeout(() => { const where = placementProblem(); if (where) status({ type: 'move-needed', where }); }, 3000);
   setTimeout(() => autoUpdater.checkForUpdates(), 60000);   // atom-feed cache lag: wait a minute
+}
+
+// Mac: SlideTistic opened from the disk image or Downloads runs from a read-only copy ("App Translocation") and
+// can never install an update. null when it's fine (in Applications, or not a Mac).
+function placementProblem() {
+  if (!isMac || !app.isPackaged) return null;
+  if (app.isInApplicationsFolder()) return null;
+  const exe = app.getPath('exe');
+  return exe.includes('/AppTranslocation/') ? 'translocated' : exe.startsWith('/Volumes/') ? 'disk image' : 'outside Applications';
 }
 
 // ---------------------------------------------------------------------------------------------

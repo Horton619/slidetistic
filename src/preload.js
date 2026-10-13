@@ -56,5 +56,6 @@ contextBridge.exposeInMainWorld('slidetistic', {
   checkForUpdate: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   installUpdate: () => ipcRenderer.send('update:install'),
+  moveToApplications: () => ipcRenderer.invoke('app:moveToApplications'),
   onUpdateStatus: (cb) => listen('update-status', cb),
 });

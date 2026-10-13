@@ -461,6 +461,8 @@ async function collectFonts(deck) {
   else toast(`${got.length - missing.length} of ${got.length} fonts in "${r.folder.split(/[\\/]/).pop()}"${missing.length ? ` (${missing.length} not found: see FONTS.txt)` : ''}.`);
 }
 
+const SLIDEFLUID_RELEASES = 'https://github.com/Horton619/slidefluid/releases/latest';
+
 const SPEAKER = '<svg class="spk" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10L5 10H2z" fill="currentColor"/>' +
   '<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.6a6 6 0 0 1 0 8.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
@@ -969,20 +971,41 @@ function onUpdateStatus(st) {
   const line = $('d-update-status');
   const bar = $('d-update-bar');
   const fill = (pct) => { bar.hidden = false; bar.firstElementChild.style.width = `${pct}%`; };
+  // The top banner tells the operator at once (David 2026-10-12: he only found the update in Diagnostics).
+  const banner = (text, { restart = false, move = false, pct = null } = {}) => {
+    $('update-text').textContent = text;
+    $('update-restart').hidden = !restart;
+    $('update-move').hidden = !move;
+    $('update-bar').hidden = pct === null;
+    if (pct !== null) $('update-bar').firstElementChild.style.width = `${pct}%`;
+    if (!S.updateDismissed) $('update-banner').hidden = false;
+  };
   if (st.type === 'checking') { line.textContent = 'Checking GitHub Releases…'; bar.hidden = true; }
   else if (st.type === 'not-available') { line.textContent = 'You have the latest version.'; bar.hidden = true; }
-  else if (st.type === 'available') { line.textContent = `Update available: v${st.version}, downloading…`; fill(0); api.downloadUpdate(); }
-  else if (st.type === 'progress') {
+  else if (st.type === 'available') {
+    line.textContent = `Update available: v${st.version}, downloading…`; fill(0); S.updateVersion = st.version;
+    if (S.moveNeeded) banner(`SlideTistic v${st.version} is out. Move SlideTistic to Applications first, so it can update itself.`, { move: true });
+    else { banner(`Downloading SlideTistic v${st.version}…`, { pct: 0 }); api.downloadUpdate(); }
+  } else if (st.type === 'progress') {
     const parts = [`${Math.round(st.percent)}%`, `${(st.transferred / 1048576).toFixed(1)} / ${(st.total / 1048576).toFixed(1)} MB`];
     if (st.bytesPerSecond > 0) parts.push(fmtSpeed(st.bytesPerSecond), fmtETA((st.total - st.transferred) / st.bytesPerSecond));
     line.textContent = parts.join('  ·  ');
     fill(st.percent);
+    banner(`Downloading SlideTistic v${S.updateVersion || ''}…  ${parts.join('  ·  ')}`, { pct: st.percent });
   } else if (st.type === 'downloaded') {
     line.textContent = `v${st.version} ready: see the banner above.`;
     fill(100);
-    $('update-text').textContent = `SlideTistic v${st.version} is ready. Restart to finish updating.`;
-    $('update-banner').hidden = false;
-  } else if (st.type === 'error') { line.textContent = `Update error: ${st.message}`; bar.hidden = true; }
+    banner(`SlideTistic v${st.version} is ready. Restart to finish updating.`, { restart: true });
+  } else if (st.type === 'move-needed') {
+    S.moveNeeded = true;
+    const why = { translocated: 'it was opened straight from Downloads', 'disk image': 'it\'s running from the disk image' }[st.where] || 'it isn\'t in the Applications folder';
+    line.textContent = `Updates can't install: ${why}. Move SlideTistic to Applications.`;
+    banner(`SlideTistic can't update itself because ${why}. Move it to Applications (it reopens from there).`, { move: true });
+  } else if (st.type === 'error') {
+    line.textContent = `Update error: ${st.message}`; bar.hidden = true;
+    // Show the raw message (global recipe): it usually says exactly what's wrong.
+    banner(`Update error: ${st.message}`, { move: /read-only volume|move the application/i.test(st.message || '') });
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1000,7 +1023,13 @@ function wireStatic() {
     if (r.error) toast(r.error); else if (r.path) toast(`Report saved: ${r.path}`);
   };
   $('btn-settings').onclick = openSettings;
-  $('btn-slidefluid').onclick = async () => { const r = await api.openSlideFluid(); if (r.error) toast(r.error); };
+  $('btn-slidefluid').onclick = async () => {
+    const r = await api.openSlideFluid();
+    if (r.error) {        // not installed: take them to the download page (David 2026-10-12)
+      toast("SlideFluid isn't installed on this computer. Opening its download page.");
+      api.openExternal(SLIDEFLUID_RELEASES);
+    }
+  };
   $('vep').onclick = (e) => { e.preventDefault(); api.openExternal('https://veproductions.net'); };
   $('update-restart').onclick = () => api.installUpdate();
   $('d-temp-clear').onclick = async () => {
@@ -1009,7 +1038,13 @@ function wireStatic() {
     showTempSize(await api.clearTemp(S.decks.map((d) => d.id)));
     b.disabled = false; b.textContent = 'Clear temporary files';
   };
-  $('update-dismiss').onclick = () => { $('update-banner').hidden = true; };
+  $('update-dismiss').onclick = () => { $('update-banner').hidden = true; S.updateDismissed = true; };
+  $('update-move').onclick = async () => {
+    $('update-move').disabled = true; $('update-move').textContent = 'Moving…';
+    const r = await api.moveToApplications();
+    if (r?.error) { toast(`Couldn't move it: ${r.error}. Drag SlideTistic into Applications in Finder, then open it from there.`); }
+    $('update-move').disabled = false; $('update-move').textContent = 'Move to Applications';
+  };
   $('d-update').onclick = () => api.checkForUpdate?.().catch?.(() => { $('d-update-status').textContent = 'Updates work in the installed app, not in development.'; });
 
   $('tabs').onclick = (e) => { const t = e.target.closest('button')?.dataset.tab; if (t) setTab(t); };

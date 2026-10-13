@@ -18,7 +18,7 @@
   </header>
 
   <div class="update-banner" id="update-banner" hidden>
-    <span id="update-text"></span><button class="btn p" id="update-restart">Restart now</button><button class="icon" id="update-dismiss" aria-label="Dismiss">✕</button>
+    <span id="update-text"></span><div class="update-bar" id="update-bar" hidden><i></i></div><button class="btn p" id="update-restart">Restart now</button><button class="btn p" id="update-move" hidden>Move to Applications</button><button class="icon" id="update-dismiss" aria-label="Dismiss">✕</button>
   </div>
 
   <div class="layout">
@@ -108,6 +108,8 @@
         <label class="check"><input type="checkbox" id="s-quick"> Quick repair (skip layout fixes and the visual review; about 5 s instead of ~80 s)</label>
         <label>Watch folder <span class="note">New decks dropped here are scanned automatically.</span>
           <div class="row"><input id="s-watch" placeholder="Off" readonly><button class="btn" id="s-watch-pick">Choose…</button><button class="btn" id="s-watch-clear">Off</button></div></label>
+        <div class="companion"><b>SlideFluid</b> <span class="note">Companion app from Visual Entropy Productions.</span>
+          <button class="btn" data-url="https://github.com/Horton619/slidefluid/releases/latest" title="Opens SlideFluid's latest release on GitHub">Get SlideFluid ↗</button></div>
       </div>
       <div class="set" id="set-fonts" hidden>
         <label>Fonts installed on the show machines <span class="note">One per line. These won't be reported as missing.</span>

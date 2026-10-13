@@ -57,7 +57,26 @@
       }
     },
     "dmg": {
-      "artifactName": "${productName}-${version}-arm64.${ext}"
+      "artifactName": "${productName}-${version}-arm64.${ext}",
+      "background": "build/dmg-bg.png",
+      "iconSize": 100,
+      "window": {
+        "width": 540,
+        "height": 480
+      },
+      "contents": [
+        {
+          "x": 175,
+          "y": 245,
+          "type": "file"
+        },
+        {
+          "x": 385,
+          "y": 245,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     },
     "win": {
       "icon": "assets/icons/icon.ico",

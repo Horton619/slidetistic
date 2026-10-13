@@ -288,3 +288,8 @@ tr.faint td { opacity: .6; }
 .confirm { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .media-banner > .btn { align-self: center; }
 .ext { color: var(--accent); cursor: pointer; white-space: nowrap; }
+.update-bar { width: 140px; height: 4px; background: rgba(6, 24, 47, .25); border-radius: 2px; overflow: hidden; }
+.update-bar > i { display: block; height: 100%; width: 0; background: #06182F; transition: width .3s; }
+#update-text { flex: 1; }
+.companion { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.companion .note { flex: 1; }

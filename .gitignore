@@ -7,6 +7,8 @@ node_modules/
 dist/
 build/*
 !build/entitlements.mac.plist
+!build/dmg-bg.png
+!build/dmg-bg@2x.png
 backend/dist/
 backend/build/
 
