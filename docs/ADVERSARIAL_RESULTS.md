@@ -195,6 +195,87 @@ Decks whose XML is approximate and should be replaced by a real-PowerPoint save 
 on them (steps in `MANIFEST.md`): `F002-alias-in-smartart`, `M002-audio-trim-mute` (play across slides),
 `R-encrypted`, `R-rich-objects`, `NEW-04`, `NEW-05`, `NEW-11`, `NEW-23`.
 
+## Round 2 (Mac, 2026-10-13)
+
+David's Mac, PowerPoint for Mac 16.113.4. Layout run: `_runs/20261013-1640-mac-69ae8fc+dirty-layout-adversarial-r2`
+in the shared suite (decks in `adversarial-layout/`). Only the 10 layout decks were run with PowerPoint; the other
+decks don't use it, so round 1 still stands for them.
+
+### Most important
+
+1. **G001-text-overflows-unwrapped: a wrong "fixed".** L008 sees the line running off the right edge (red) and
+   moves the box 1.06 in left. The report says green_fixed. The after image still shows most of the sentence off the
+   slide. Why: on the Mac, PowerPoint's PDF leaves out text past the slide edge, so after the move the engine sees
+   a line that ends at the edge and thinks it fits.
+2. **G002-autofit-off-overflow: half the text lost, reported as a yellow.** Only 6 of 12 lines are drawn; lines
+   7–12 are below the slide. L008 says only "reaches into the 5% safe border at the bottom (by 0.32 in)". Same
+   cause: the lost lines aren't in the PDF, so nothing counts them.
+3. **Some made-up decks made PowerPoint ask "Repair?"** Details: `tests/fixtures/adversarial/POWERPOINT_REJECTS.md`.
+   - 22 Google and Keynote decks: an empty `<AppVersion>` in `docProps/app.xml`. Fixed in the generator; those decks
+     got the new `app.xml` and nothing else, and five were re-opened in PowerPoint: clean.
+   - 7 still need real saves: both C007 comment decks, F002-alias-in-smartart, R-rich-objects (SmartArt, ink),
+     M002 and NEW-11 (audio), NEW-23 (transition sound). PowerPoint strips or rewrites those parts.
+4. **What the engine does when PowerPoint asks "Repair?"** (a client deck can do this too):
+   - Repair: the copy is renamed "… - Repaired", the export script can't find it, and after ~3 min the deck gets
+     "Layout fixes skipped: … Can't get full name of missing value". Safe, but not crew-readable.
+   - The repaired copy then stays open in PowerPoint. Neither `cli cleanup` nor the next engine closes it (the
+     name no longer matches). CLAUDE.md says copies never stay open.
+   - Cancel: the engine says "PowerPoint stopped responding", and so does the next engine process, so the next
+     deck lost its layout pass too.
+   - The prompt shows on screen with no hint that SlideTistic is waiting for it.
+
+### Layout decks, one by one
+
+| Deck | What should happen | What happened on the Mac | Verdict |
+| --- | --- | --- | --- |
+| G001-text-overflows-unwrapped | Line off the right edge: red | L008 red, then a 1.06 in move reported as fixed; still off the slide | **Wrong fix** |
+| G002-autofit-off-overflow | Text below the slide: red | 6 of 12 lines drawn; L008 yellow (safe border) | **Miss** |
+| L001-title-zero-slack | After the font fix the title wraps; L001 fixes it | Box tightened first in PowerPoint (12.715 in is the narrowest one-line width; 12.712 wraps). F001 + F002 fixed; the title wrapped; L001 widened the box to 13.10 in; one line in the after image | OK |
+| L001-wider-on-windows | One line on the Mac | One line. F007 red: Helvetica Neue is a Mac font, swap Arial | OK (PC still to do) |
+| L008-safe-zone-cases | Hair into the border: leave it. Footer: not flagged. Panel text: with its panel or not at all | Nothing flagged, nothing moved. But the "hair into the border" paragraph is drawn inside the border (the box's padding pushes it in), so T001 isn't really tested | OK; deck needs a tweak |
+| L009-orphans | One-word last line: fixed. 90 % title: see | No one-word last line in PowerPoint's render ("across the region"), so L009 rightly stays quiet. Title draws on two lines; L008 note: 0.04 in into the top border | Deck doesn't test it |
+| L010-overlap-cases | Interleaved: not red. Stacked labels: letter rule. Click builds: one note. White name under text: red | Stacked labels: quiet (letters apart). White name: red, as today. Click builds: a **yellow**, not a note. "Interleaved" boxes actually overlap in the render ("Elementary" over "School Hub"), so red is right | Mostly OK; deck needs a wider gap; note-or-yellow is David's call |
+| L011-picture-cases | Half-over caption: flagged. Invisible picture: not | Caption yellow (40 % over). Invisible picture: quiet. Also M009 on the tiny test pictures | OK |
+| NEW-02-text-on-busy-photo | No check yet | Caption unreadable on noise; no finding (M009 on the 400 px photo) | As expected |
+| NEW-14-grouped-transparent-pictures | No check yet | Soft grey on the Mac, not black | As expected (old Windows PowerPoint still to try) |
+
+Clean run: no crashes, no tool errors, a second repair changed nothing on any of the 10.
+
+### Font list (F009)
+
+The catalog downloaded on the Mac (2,103 free fonts). On this Mac F009 says nothing for `F009-renamed-google-font`,
+correctly: Montserrat and Source Sans Pro are installed here. With the installed list blanked (a clean show
+machine) it offers "Montserrat … ExtraBold" and "Source Sans Pro … Regular". Fontsource still carries the old name
+Source Sans Pro, which matches what the deck asks for, so that's the better offer than Source Sans 3. F007 red for
+both, as expected.
+
+### Real PowerPoint saves
+
+Made by PowerPoint itself (AppleScript drives PowerPoint; PowerPoint writes the XML and saves). The author field
+PowerPoint stamps was changed to "Sample Presenter".
+
+- **NEW-04** (builds + exit on the last click): replaced. Real "Appear" is preset 1, not Fade (10).
+- **NEW-05** (6 s Vortex + Morph): replaced. Both transitions sit inside `mc:AlternateContent` with a plain fade as
+  the fallback. A detector reading only the top-level `p:transition` would see fades.
+- **R-encrypted**: made, and it confirms round 1 (the message never says "password"). **Not committed:** PowerPoint
+  writes the user's name inside the encrypted part, and the password is public.
+- **Not done yet:** M002 and NEW-11 (inserting audio needs the file picker, which can't be driven in the background),
+  F002-alias-in-smartart and R-rich-objects (SmartArt, ink), NEW-23 (Windows only), and the Windows saves of
+  NEW-04/05.
+
+### Changed from round 1
+
+- G001-text-overflows-unwrapped and G002-autofit-off-overflow now expect **L008 red**: judging drawn words is L008's
+  job; G001/G002 only look at boxes. Still xfail (needs PowerPoint, plus the two bugs above).
+- L001-title-zero-slack: title box 13.81 → 12.715 in (PowerPoint's narrowest one-line width).
+- `kit.set_app` leaves out an empty `<AppVersion>`; 22 decks changed in `app.xml` only.
+
+### Questions for David (new)
+
+- L010: two text boxes that build on clicks in the same spot get a full yellow. Should that be a note?
+- How should the engine handle a deck PowerPoint wants to repair: say "PowerPoint had to repair this deck; layout
+  not checked" and close the copy? Or check the repaired copy, with a warning?
+
 ## How to re-run
 
 ```
