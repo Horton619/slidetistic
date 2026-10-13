@@ -50,5 +50,5 @@ class HeaderGainedALine(Check):
                             obstacle_boxes=fit.obstacles(deck, finding.slide, sv.shape_id, st.lines),
                             accept=lambda o, t: t <= was,
                             band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
-        if not plan or not fit.apply(edits, sv, plan, f"keep the header on {was} line(s)"):
+        if not plan or not fit.apply(edits, sv, plan, f"keep the header on {was} line(s)", finding, ctx):
             raise FixRefused(f"can't get it back to {was} line(s) within the safe zone and the font cap")

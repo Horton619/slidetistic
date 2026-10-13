@@ -23,6 +23,7 @@ class EditSession:
         self.check_id: str | None = None
         self._runs_after: set[str] = set()
         self._refiners: set[str] = set()
+        self.notes: list[dict] = []     # tuning: what each planned layout fix was (core/tuning.py)
 
     def allow_refining(self, check_ids):
         """Checks that may adjust each other's edits (the layout fit pass: it re-renders between rounds,

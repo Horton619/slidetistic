@@ -25,3 +25,15 @@ def corpus_root(config) -> Path | None:
 def pytest_terminal_summary(terminalreporter, config):
     from tests import test_corpus
     test_corpus.print_summary(terminalreporter)
+
+
+@pytest.fixture(autouse=True)
+def _private_font_folders(tmp_path_factory, monkeypatch):
+    """F009: tests never read this machine's fonts or font cache, and never install anything for real."""
+    from engine.core import fonts_catalog
+    base = tmp_path_factory.mktemp("fonts")
+    monkeypatch.setenv("SLIDETISTIC_FONT_CACHE", str(base / "cache"))
+    monkeypatch.setenv("SLIDETISTIC_FONT_DIR", str(base / "installed"))
+    fonts_catalog._load.cache_clear()
+    yield
+    fonts_catalog._load.cache_clear()

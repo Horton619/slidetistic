@@ -19,11 +19,17 @@ filename_max_chars: 120         # X002
 target_play_mode: click_sequence # M001: videos must start from the clicker ("In click sequence"); "Automatically" is also fine
 offslide_tolerance_in: 0.02     # G001/G002: overhangs smaller than this are ignored
 safe_zone_pct: 5                # David 2026-10-10: text stays inside a 5% border on every edge
+header_footer_band_pct: 15      # David 2026-10-12: text drawn entirely in the top/bottom 15% is a header/footer: never moved, not flagged for the border
+safe_zone_fix_min_area_pct: 25  # David 2026-10-12: only blocks covering this much of the slide are pulled in from the border (votes: 14 👍/34 👎 vs 21/164 below)
+l011_note_below_share_pct: 15   # L011: text less than this much over a picture is a Note, not a yellow (170 of 321 suite yellows)
+on_shape_min_overlap_pct: 80    # text box this much over a filled shape "sits on" it: the two move together or not at all
 fit_min_line_spacing_pct: 85    # fit fixes never tighten line spacing below this share of the original
 fit_max_font_shrink_pct: 15     # last resort: font may shrink at most this much (David 2026-10-10: raised from 10)
 orphan_max_words: 1             # a paragraph's last line with this many words or fewer is an orphan
 orphan_min_paragraph_words: 6   # shorter paragraphs (titles, labels: "Board of / Directors") are never orphans
 overlap_max_per_slide: 12        # L010: more text-over-text collisions than this on one slide → one finding, no fix attempts
+letter_top_pct: 17              # a line box's letters start this far down it (cap height; David 2026-10-12: boxes overlap, letters don't)
+letter_baseline_pct: 81         # …and sit on a baseline this far down (descenders below are allowed into the next line's space)
 overlap_min_pt: 2               # L010/L011: overlaps thinner than this (in points) are ignored
 fit_wrap_band_pct: 1             # fit prediction: PowerPoint's real text width is the box's text area ± this % (a fix must work at both ends)
 fit_max_attempts_per_box: 2      # a box still showing the same layout problem after this many changes goes back as it was

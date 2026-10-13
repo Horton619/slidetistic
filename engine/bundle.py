@@ -38,10 +38,39 @@ def write(result, checks, config, out_dir: Path, *, visuals=None, note: str = ""
         "inventory": export.inventory_rows(result.findings),
         "downloads": export.download_rows(result.findings),
         "totals": export.totals(export.inventory_rows(result.findings)),
+        "fonts": export.font_rows(result.output_path or result.input_path, result.findings, getattr(config, "crew_fonts", ())),
         "checks": [dict(c.metadata(), ran=config.check_on(c), fix_on=config.fix_on(c)) for c in checks],
+        "tuning": _tuning_meta(result, config),
     }
     path = out_dir / "review.json"
     tmp = path.with_suffix(".partial")
     tmp.write_text(json.dumps(data, default=str), encoding="utf-8")
     replace_retrying(tmp, path)        # Dropbox/Defender may briefly hold the new file
     return path
+
+
+def _tuning_meta(result, config) -> dict:
+    """What a 👍/👎 vote needs to be replayed later: which deck, which rules and thresholds it was made under."""
+    from .core import rules, tuning
+    keys = ("safe_zone_pct", "fit_min_line_spacing_pct", "fit_max_font_shrink_pct", "orphan_max_words",
+            "orphan_min_paragraph_words", "overlap_min_pt", "body_widen_max_pct", "fit_wrap_band_pct")
+    th = {**rules.load("thresholds"), **(getattr(config, "overrides", None) or {})}
+    return {"deck_sha12": _sha12(Path(result.input_path)), "gates_hash": tuning.gates_hash(),
+            "thresholds": {k: th.get(k) for k in keys},
+            "skipped_by_gates": sum(1 for n in getattr(result, "notes", []) if n.get("gate"))}
+
+
+_SHA: dict = {}
+
+
+def _sha12(path: Path) -> str:
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    if key not in _SHA:
+        import hashlib
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        _SHA[key] = h.hexdigest()[:12]
+    return _SHA[key]

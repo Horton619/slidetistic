@@ -22,6 +22,23 @@ def test_f001_base_known_only_from_embedded_file(tmp_path):
     assert statuses(run_scan(src, "F001"), "F001") == {"Poppins Bold": Status.RED}
 
 
+def test_f001_embedded_name_that_cant_be_refiled_is_left_alone(tmp_path):
+    # Dealer Trust 2026-10-12 (Canva): 'Arial Nova Condensed Bold' is embedded, but its file says family
+    # 'Arial Nova', so F005 can't refile it under 'Arial Nova Condensed'. Renaming made the text regular.
+    src = make_deck(tmp_path, text_box("A", font="Arial Nova Condensed Bold"), text_box("B", font="Arial Nova Condensed"),
+                    embeds=[embed("Arial Nova Condensed Bold", "regular", "Arial Nova", "Condensed Bold", weight=700),
+                            embed("Arial Nova Condensed", "regular", "Arial Nova", "Condensed")])
+    result = run_repair(src, "F001")
+    [f] = [f for f in result.findings if f.check_id == "F001"]
+    assert f.is_note and result.changes == []
+
+
+def test_f001_office_base_embedded_as_written_is_still_renamed(tmp_path):
+    # PAT 2026-10-06: 'Calibri Bold' embedded under that name; real Calibri Bold is on every machine.
+    src = make_deck(tmp_path, text_box(font="Calibri Bold"), embeds=[embed("Calibri Bold", "regular", "Calibri", "Bold")])
+    assert statuses(run_scan(src, "F001"), "F001") == {"Calibri Bold": Status.RED}
+
+
 def test_f001_real_family_ending_in_bold_is_left_alone(tmp_path):
     # Nearest look-alike: 'Arial Rounded MT Bold' is a real font; there's no 'Arial Rounded MT'.
     src = make_deck(tmp_path, text_box(font="Arial Rounded MT Bold"))

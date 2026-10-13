@@ -132,6 +132,18 @@ to David; only run `--update-snapshots` after he accepts it.
   confirmed, cached in `~/Library/Caches/SlideTistic/keynote`. Keynote stays visible (its prompts block
   conversion and must be answerable). Classic 14.5 nags on every launch; Creator Studio needs its welcome
   screen clicked through once. Windows: plain "convert on a Mac" message.
+- **Tuning** (`docs/TUNING.md`): every layout fix goes through `fit.apply` (or `tuning.allow` for L008's push),
+  which describes it in numbers (`core/tuning.py`) and refuses it if an approved gate in `rules/tuning.yaml`
+  matches. Feature names are shared by the gate check, the review bundle (`visual._net_change`) and
+  `engine/tune.py`: rename one, rename all three. A new fit fix must call `tuning.allow` before editing.
+- **Letters, not boxes** (2026-10-12): off-slide and text-over-text decisions use the render (`PdfLayout.cut_off`,
+  `letters_apart`) or `fit.letter_zone` when predicting; a line box alone is never evidence. Moves avoid filled
+  shapes, outlines and lines too (`fit.obstacles`).
+- **Notes:** a low-priority yellow is `Status.YELLOW` + `evidence["note"] = True` (`Finding.is_note`); it's not
+  counted in `summary.yellow` (`summary.notes`) and shows collapsed in the review. No new status values.
+- **Fonts** (`docs/F009_FONTSOURCE_DESIGN.md`): `fonts.uncovered` is the shared "missing" rule (F007, F009), and
+  `font_use.visible_fonts` decides what shown text really uses. F009 and its downloads never run in detect without
+  the cache; tests run with private font folders (conftest) so nothing is installed for real.
 - **Temp files:** `cli cleanup [--all]`; renderers purge leftovers over 6 h; the app clears review bundles at
   launch and when a deck leaves the queue.
 

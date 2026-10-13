@@ -551,3 +551,45 @@ David reviewed the first layout report: the problems were flagged but not fixed 
 - **App queue (David):** a clicked Repair stops the running scan and starts immediately; the scan re-runs
   next. A job with no progress for 6 min (scan) or 10 min (repair) is stopped with a plain red card, so
   one unreadable deck can't freeze the queue. "Open in PowerPoint at this slide" works on Windows.
+
+### 2026-10-11: Tuning mode (David's 👍/👎 votes tune the layout fixes)
+
+- **Why:** David judged more than half of the layout "repairs" to be inconsequential or worse.
+- **How:** Settings › Diagnostics › Tuning mode adds 👍/👎 (plus four optional 👎 reasons) to every changed slide.
+  One vote covers the whole slide. Votes are JSON lines in the Dropbox suite's `_feedback/votes-<machine>.jsonl`
+  and hold numbers only (`engine/core/tuning.py` features), never slide text.
+- **Rules change only with David's approval:** `slidetistic tune` reports approval by kind of change, proposes
+  gates replayed against every vote, and asks about splits; `tune --apply P#` writes an approved gate to
+  `rules/tuning.yaml`. A gated fix isn't made, and its finding stays "worth a look" (fixed, or untouched).
+
+### 2026-10-12: Safe-zone fixes narrowed (David's first 305 votes)
+
+- **Header/footer band:** text drawn entirely in the top or bottom 15 % of the slide (`header_footer_band_pct`),
+  and footer / slide-number / date / header placeholders, is placed on purpose. It isn't flagged for sitting in
+  the border, and it's never moved, even when it runs off the slide (that stays red for a person).
+- **Only big blocks are pulled in from the border:** text whose box covers ≥25 % of the slide
+  (`safe_zone_fix_min_area_pct`). Smaller text near an edge is reported (yellow) and left as designed.
+- **Text sitting on a filled shape** (≥80 % of the box over it, `on_shape_min_overlap_pct`) moves together with
+  the shape by the same amount, or not at all.
+
+### 2026-10-12: Free fonts (F009), Fonts tab, Notes, broken-slide checks
+
+- **F009 source:** the catalog comes from the Fontsource API (David: only fonts that API lists). Files come from
+  Google Fonts' CSS API as TTF (correct names, full character set), or from Fontsource for its non-Google fonts.
+  Every file is name-checked before it's installed per user. See docs/F009_FONTSOURCE_DESIGN.md §10–12.
+- **Fonts tab + banner** (like Media): every font, its status, the slides it's shown on, embedded or not, Get.
+- **Fonts no text uses** become notes in F007 (half of all font reds were these).
+- **Notes level:** low-priority yellows (small text by an edge; under 15 % of text over a picture; fonts no text
+  uses) are shown collapsed and not counted with the yellows.
+- **Broken slides:** each red slide, plus one "whole deck" item, gets ✓ Checked. A counter tells the operator when
+  everything critical has been looked at, remembered per deck file. The filter (R) shows broken slides only.
+
+### 2026-10-12 (evening): Round 2 votes → letters, not boxes
+
+- Round 2: 103 votes, 48 % approved (round 1: 14 %). Applied:
+  - **T001** (no L008 pull for text under 0.1 in into the border; David approved);
+  - **off-slide** = letters touching the edge in the render (a line box crossing it isn't);
+  - **text over text** = letter zones overlapping with no clean pixel row between them (stacked labels aren't);
+  - **moves avoid** filled shapes, outlines and lines;
+  - **F001** renames only names F005 can refile (Dealer Trust: renaming an embedded "X Bold" made the text regular).
+- Still with David: font shrinking for overlaps/safe zone (decide after seeing real collisions).

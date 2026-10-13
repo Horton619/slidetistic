@@ -1,0 +1,14 @@
+# Free fonts published by their makers outside Fontsource / Google Fonts (David 2026-10-12: "grab Microsoft fonts
+# if available"). F009 offers these when a deck uses one and it isn't installed. Each family lists the weights and
+# styles the download contains; files are picked from the archive by the name inside them (the deck's name wins).
+microsoft_aptos:
+  publisher: Microsoft
+  url: https://download.microsoft.com/download/8/6/0/860a94fa-7feb-44ef-ac79-c072d9113d69/Microsoft%20Aptos%20Fonts.zip
+  page: https://www.microsoft.com/en-us/download/details.aspx?id=106087
+  license: Microsoft Aptos Fonts EULA (free download from Microsoft)
+  families:
+    Aptos: {weights: [300, 400, 600, 700, 800, 900], styles: [normal, italic]}
+    Aptos Display: {weights: [400, 700], styles: [normal, italic]}
+    Aptos Narrow: {weights: [400, 700], styles: [normal, italic]}
+    Aptos Serif: {weights: [400, 700], styles: [normal, italic]}
+    Aptos Mono: {weights: [400, 700], styles: [normal, italic]}

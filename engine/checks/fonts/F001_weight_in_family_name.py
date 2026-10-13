@@ -22,6 +22,14 @@ class WeightInFamilyName(Check):
         for r in refs:
             if fonts.split_style(r.typeface):
                 by_name[r.typeface].append(r)
+        # Canva embeds each weight under its own name ("Roboto Bold" holds Roboto's Bold face). After F001 renames
+        # the text, F005 refiles that file into the base family's bold slot, so PowerPoint still finds it. That
+        # only works when F005 can refile every file in the entry (fonts.canva_weight_embed): Dealer Trust's
+        # "Arial Nova Condensed Bold" file says family "Arial Nova", and its "Arial Nova Bold" entry holds a
+        # second oddly named file, so the rename orphaned them and the text went regular (2026-10-12). Those
+        # names are left alone: PowerPoint (Mac and Windows) uses the embedded file for the name as written.
+        stuck = {ef.typeface.casefold(): ef for ef in fonts.embedded_fonts(deck) if any(s.info for s in ef.slots)}
+        office = rules.names("office_fonts")
 
         findings = []
         for name, group in sorted(by_name.items()):
@@ -36,7 +44,17 @@ class WeightInFamilyName(Check):
                                 if fam in known else
                                 f"'{name}' ends in a style word, but '{base}' isn't an Office font, embedded, on the "
                                 f"crew list, or used plainly in the deck, so it may be a real family name")
-            if fonts.alias(base).casefold() in known:
+            ef = stuck.get(name.casefold())
+            refileable = ef is not None and all(fonts.canva_weight_embed(ef, s) for s in ef.slots if s.info)
+            if ef is not None and not refileable and fonts.alias(base).casefold() not in office:
+                findings.append(Finding(self.id, Status.YELLOW,
+                    f"'{name}' ends in a style word, but the deck embeds a font under exactly that name, so "
+                    f"PowerPoint uses it as is. Left alone ({fonts.where(group)}).",
+                    subject=name, evidence={**evidence, "note": True, "embedded_as_named": True,
+                                            "rule": f"'{name}' is the declared name of an embedded font whose file says "
+                                                    f"family '{next((s.info.family for s in ef.slots if s.info), '?')}', "
+                                                    f"not '{base}': it can't be refiled, so renaming would orphan it"}))
+            elif fonts.alias(base).casefold() in known:
                 findings.append(Finding(self.id, Status.RED,
                     f"'{name}' isn't a real font name, so Mac PowerPoint swaps in another font "
                     f"({fonts.where(group)}). Fix: '{base}' with {flags} on.",

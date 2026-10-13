@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld('slidetistic', {
   loadReview: (deckId) => ipcRenderer.invoke('review:load', deckId),
   discardReview: (deckId) => ipcRenderer.invoke('review:discard', deckId),
   tempSize: () => ipcRenderer.invoke('temp:size'),
+  collectFonts: (file) => ipcRenderer.invoke('fonts:collect', file),
+  getFonts: (file, families) => ipcRenderer.invoke('fonts:get', file, families),
+  loadChecked: (key) => ipcRenderer.invoke('checked:load', key),
+  setChecked: (key, slide, sig) => ipcRenderer.invoke('checked:set', key, slide, sig),
+  vote: (record) => ipcRenderer.invoke('feedback:vote', record),
+  loadVotes: (deckSha) => ipcRenderer.invoke('feedback:load', deckSha),
   clearTemp: (keepIds) => ipcRenderer.invoke('temp:clear', keepIds),
   onEngineEvent: (cb) => listen('engine:event', cb),
 

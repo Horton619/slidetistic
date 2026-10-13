@@ -67,7 +67,7 @@ class OrphanWord(Check):
                             accept=lambda o, t: o < max(1, orphans_now) and t <= lines_now
                             and (limit is None or t <= limit),
                             band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
-        if not plan or not fit.apply(edits, sv, plan, "remove a single-word line"):
+        if not plan or not fit.apply(edits, sv, plan, "remove a single-word line", finding, ctx):
             raise FixRefused("no box width from −15 % to +"
                              f"{self.threshold(ctx, 'body_widen_max_pct')} % fixes it without adding a line, "
                              "leaving the safe zone, or landing on other text or a picture")

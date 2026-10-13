@@ -97,11 +97,12 @@ def _l008(deck, layout):
 
 
 def test_l008_pushes_the_text_below_when_it_has_room(tmp_path):
-    # Title in the top border; moving it down hits the body, which has room to move down first.
-    deck, sv = setup(tmp_path, text_box("Title", x=2, y=0.05, w=6, h=0.6, name="T"),
-                     text_box("Body", x=2, y=0.7, w=6, h=0.6, name="Body"))
-    t = ShapeText(sv["T"].shape_id, [words_line(["Title"], 4, 0.05, h_in=0.5)], [0])
-    b = ShapeText(sv["Body"].shape_id, [words_line(["Body"], 4, 0.6, h_in=0.5)], [0])
+    # A big title block in the top border (taller than the header band, so not a header strip: David
+    # 2026-10-12); moving it down hits the body, which has room to move down first.
+    deck, sv = setup(tmp_path, text_box("Title", x=1, y=0.05, w=8, h=3.4, name="T"),
+                     text_box("Body", x=1, y=1.6, w=8, h=0.6, name="Body"))
+    t = ShapeText(sv["T"].shape_id, [words_line(["Title"], 4, y, h_in=0.5) for y in (0.05, 0.55, 1.05)], [0, 1, 2])
+    b = ShapeText(sv["Body"].shape_id, [words_line(["Body"], 4, 1.55, h_in=0.5)], [0])
     layout = FakeLayout({sv["T"].shape_id: t, sv["Body"].shape_id: b})
     check, ctx = _l008(deck, layout)
     [f] = [f for f in check.detect(deck, ctx) if f.shape_name == "T"]
@@ -111,9 +112,10 @@ def test_l008_pushes_the_text_below_when_it_has_room(tmp_path):
     assert [c.shape_name for c in edits.changes] == ["Body"] and edits.changes[0].prop == "top"
 
 
-def test_image_filled_shapes_count_as_graphics_but_plain_panels_dont(tmp_path):
+def test_image_filled_shapes_count_as_graphics_and_panels_block_moves(tmp_path):
     # PAT 5: Canva's chart and map are freeform shapes FILLED WITH AN IMAGE, not pictures. Plain coloured
-    # panels behind text are not obstacles (counting them flagged 45 harmless overlaps).
+    # panels aren't graphics for detection (counting them flagged 45 harmless overlaps), but a fix must not
+    # move text onto one it isn't on now (David 2026-10-12: "hit other elements").
     from lxml import etree
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.oxml.ns import qn
@@ -137,4 +139,5 @@ def test_image_filled_shapes_count_as_graphics_but_plain_panels_dont(tmp_path):
     deck, sv = setup(tmp_path, text_box("a b c", x=1, y=1, w=4.6, h=2, name="B"), image_filled, panel)
     st = ShapeText(sv["B"].shape_id, [words_line("a b c".split(), 1.1, 1.0)], [0])
     found = fit.obstacles(deck, 1, sv["B"].shape_id, st.lines)
-    assert len(found) == 2          # the small picture + the image-filled freeform; not the plain panel
+    assert len(found) == 3          # the small picture, the image-filled freeform, and the panel
+    assert [fit.is_graphic(s) for s in deck.slide_shapes(1)].count(True) == 2   # detection: not the panel

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,7 +19,7 @@ KIND = {"F": "font", "G": "placement", "L": "layout", "M": "media", "P": "media"
 KIND_LABEL = {"font": "Font fix", "placement": "Placement", "layout": "Layout fit", "media": "Media & playback",
               "content": "Content"}
 TIERS = {1: "Broken: fix before the show", 2: "Changes SlideTistic made: check them",
-         3: "Needs a look", 4: "Changed underneath, looks identical"}
+         3: "Needs a look", 4: "Changed underneath, looks identical", 5: "Notes: low priority"}
 
 
 def kind_of(check_id: str) -> str:
@@ -31,7 +34,7 @@ class Box:
     height: float
     label: str       # what happened, one line
     kind: str        # font | placement | layout | media | content  (box colour)
-    mode: str        # changed | red | yellow                          (line style / severity)
+    mode: str        # changed | red | yellow | note                   (line style / severity)
     detail: str = "" # diagnostic: the rule and numbers behind it
 
 
@@ -44,6 +47,9 @@ class SlideVisual:
     after_png: str | None = None
     looks_same: bool = False         # rendered before/after are visually identical
     media: list = field(default_factory=list)   # video/audio on the slide: the review's ▶ VIDEO badges
+    tuning: list = field(default_factory=list)  # per changed shape: what the change was, in numbers (core/tuning.py)
+    tuning_sig: str = ""             # identifies this exact set of changes (a vote applies to it)
+    diff_pct: float | None = None    # share of the slide's pixels the change visibly altered
 
     @property
     def tier(self) -> int:
@@ -54,6 +60,8 @@ class SlideVisual:
             return 2
         if "yellow" in modes:
             return 3
+        if "note" in modes and not any(b.mode == "changed" for b in self.after_boxes):
+            return 5
         return 4
 
     @property
@@ -101,6 +109,7 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
                 label = "Deck-wide fix: " + ", ".join(f"{f.check_id} {f.subject}" for f in deck_fixes[:4])
                 rule = " | ".join(f"{f.check_id}: {f.evidence.get('rule', f.message)}" for f in deck_fixes[:4])
             v = visuals.setdefault(slide, SlideVisual(slide))
+            v.tuning.append(_net_change(slide, sid, b, a, changes, getattr(result, "notes", [])))
             if b.bounds:
                 v.before_boxes.append(Box(*from_sv(b), label, kind_of(cid), "changed", rule))
             if a.bounds:
@@ -118,7 +127,7 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
             continue
         v = visuals.setdefault(f.slide, SlideVisual(f.slide))
         target = v.after_boxes if mended else v.before_boxes
-        target.append(Box(*geom, f"{f.check_id}: {f.message}", kind_of(f.check_id), f.status.value,
+        target.append(Box(*geom, f"{f.check_id}: {f.message}", kind_of(f.check_id), "note" if f.is_note else f.status.value,
                           f.evidence.get("rule", "")))
     # Badge every video and sound on the slides shown, so operators see at a glance where media plays
     # (David 2026-10-11: media is the biggest pre-show job).
@@ -132,7 +141,37 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
             visuals[m.slide].media.append({"left": l, "top": t, "width": w, "height": h, "kind": m.kind,
                                            "start": starts.get(m.mode, "").format(clicks=m.clicks),
                                            "linked": m.linked})
+    for v in visuals.values():
+        if v.tuning:
+            v.tuning.sort(key=lambda t: t["shape_id"])
+            v.tuning_sig = hashlib.sha1(json.dumps(v.tuning, sort_keys=True, default=str).encode()).hexdigest()[:12]
     return [visuals[k] for k in sorted(visuals)]
+
+
+def _net_change(slide, sid, b, a, changes, notes) -> dict:
+    """What David sees for one changed shape, in tuning features: the planned-fix description (trigger, role,
+    kind) with the sizes replaced by the NET before → after difference (a box may have had two attempts)."""
+    from .core import EMU_PER_INCH, tuning
+    kept = [n["features"] for n in notes if n["slide"] == slide and n["shape_id"] == sid and not n.get("gate")]
+    if not kept:
+        cid = changes[0].check_id if changes else None
+        return {"shape_id": sid, "check": cid, "fix": "other",
+                "props": sorted({c.prop for c in changes}) or ["deck-wide"]}
+    f = dict(kept[-1])
+    font = spacing = 1.0
+    for k in kept:
+        font *= 1 - k.get("font_pct", 0) / 100
+        spacing *= 1 - k.get("spacing_pct", 0) / 100
+    if b.bounds and a.bounds:
+        dx, dy = a.bounds.left - b.bounds.left, a.bounds.top - b.bounds.top
+        f["move_in"] = round(math.hypot(dx, dy) / EMU_PER_INCH, 3)
+        f["width_pct"] = round((a.bounds.width / b.bounds.width - 1) * 100, 1) if b.bounds.width else 0.0
+    f["font_pct"], f["spacing_pct"] = round((1 - font) * 100, 1), round((1 - spacing) * 100, 1)
+    if f.get("fix") not in ("push", "pair"):
+        f["fix"] = tuning.fix_kind(font=font, spacing=spacing, width_pct=f.get("width_pct", 0))
+    f["attempts"] = len(kept)
+    f["shape_id"] = sid
+    return f
 
 
 def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer, image_dir: Path | None = None) -> None:
@@ -174,6 +213,7 @@ def render(visuals: list[SlideVisual], original: Path, mended: Path, renderer, i
                     setattr(v, attr, "data:image/jpeg;base64," + base64.b64encode(raw[label]).decode())
         if len(raw) == 2:
             v.looks_same = _same_picture(raw["before"], raw["after"])
+            v.diff_pct = 0.0 if v.looks_same else _diff_pct(raw["before"], raw["after"])
 
 
 def _same_picture(a: bytes, b: bytes, noise: int = 40) -> bool:
@@ -184,6 +224,17 @@ def _same_picture(a: bytes, b: bytes, noise: int = 40) -> bool:
     if ia.size != ib.size:
         return False
     return ImageChops.difference(ia, ib).point(lambda v: 255 if v > noise else 0).getbbox() is None
+
+
+def _diff_pct(a: bytes, b: bytes, noise: int = 40) -> float | None:
+    """Percent of the slide's pixels that visibly changed (tuning: "did this change even show?")."""
+    import io
+    from PIL import Image, ImageChops
+    ia, ib = Image.open(io.BytesIO(a)).convert("L"), Image.open(io.BytesIO(b)).convert("L")
+    if ia.size != ib.size:
+        return None
+    hist = ImageChops.difference(ia, ib).point(lambda v: 255 if v > noise else 0).histogram()
+    return round(100 * hist[255] / (ia.size[0] * ia.size[1]), 2)
 
 
 GEOMETRY = {"left": "position", "top": "position", "width": "width", "height": "height"}

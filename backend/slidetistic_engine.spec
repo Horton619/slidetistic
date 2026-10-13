@@ -17,6 +17,7 @@ datas = [(str(ROOT / "engine" / "checks"), "engine/checks"),
          (str(ROOT / "engine" / "rules"), "engine/rules"),
          (str(ROOT / "engine" / "assets"), "engine/assets")]
 hidden = collect_submodules("engine")
+hidden += ["truststore", "certifi"]     # HTTPS for the free-font downloader (F009): the OS trust store, then certifi
 assert any(m.startswith("engine.checks.") for m in hidden), "engine modules not found"
 
 a = Analysis(

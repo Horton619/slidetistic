@@ -45,6 +45,7 @@ class Result:
     clean_checks: list[str] = field(default_factory=list)
     changes: list[Change] = field(default_factory=list)
     output_path: Path | None = None
+    notes: list[dict] = field(default_factory=list)     # tuning descriptions of layout fixes
 
     def summary(self) -> dict:
         problems = [f for f in self.findings if not f.informational]
@@ -54,7 +55,8 @@ class Result:
             "input": str(self.input_path),
             "output": str(self.output_path) if self.output_path else None,
             "green_fixed": count(Status.GREEN_FIXED),
-            "yellow": count(Status.YELLOW),
+            "yellow": sum(1 for f in problems if f.status == Status.YELLOW and not f.is_note),
+            "notes": sum(1 for f in problems if f.is_note),
             "red": count(Status.RED),
             "tool_error": count(Status.TOOL_ERROR),
             "informational": sum(1 for f in self.findings if f.informational),
@@ -467,7 +469,7 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
 
     findings = _reconcile(before, after, outcome, edits.changes) + errors
     result = Result(input_path=path, findings=findings, clean_checks=clean,
-                    changes=edits.changes, output_path=out)
+                    changes=edits.changes, output_path=out, notes=edits.notes)
     for c in edits.changes:
         emit({"type": "change", **c.to_dict()})
     for f in findings:

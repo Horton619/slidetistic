@@ -6,8 +6,11 @@
   const ROOT = '/corpus/reviews';
   const BUNDLE = new URLSearchParams(location.search).get('review') || 'pat';   // a folder under corpus/reviews
   let settings = { outputFolder: '', suffix: ' - mended', safeZonePct: 5, quickRepair: false, crewFonts: '',
-    skin: new URLSearchParams(location.search).get('skin') || 'pro', showWhy: true, watchFolder: '', presets: {}, lastTab: 'review' };
+    skin: new URLSearchParams(location.search).get('skin') || 'pro', showWhy: true, watchFolder: '', presets: {}, lastTab: 'review',
+    tuningMode: new URLSearchParams(location.search).has('tuning') };
   const listeners = [];
+  const votes = [];
+  const checked = {};
   const emit = (ev) => listeners.forEach((cb) => cb(ev));
   const later = (ms, fn) => new Promise((r) => setTimeout(() => { fn(); r(); }, ms));
   async function run(deckId, kind) {
@@ -27,6 +30,12 @@
     repair: async (id) => { run(id, 'repair'); return { output: '/Users/demo/Downloads/03 - PAT MBD Presentation - mended.pptx' }; },
     undoSlide: async (id, _m, slide) => { setTimeout(() => emit({ deckId: id, kind: 'undo', type: 'undone', slide }), 600); return {}; },
     cancel: async () => {},
+    collectFonts: async () => { await new Promise((r) => setTimeout(r, 900)); return { folder: '/Users/demo/Shows/Deck - fonts', events: [{ type: 'font', name: 'Proxima Nova Bold', how: 'Creative Cloud (link)' }, { type: 'font', name: 'Museo Sans 500 Regular', how: 'not found' }] }; },
+    getFonts: async (_f, fams) => { await new Promise((r) => setTimeout(r, 1200)); return { events: fams.map((f) => ({ type: 'font', family: f, ok: true, license: 'OFL-1.1', message: `${f} (OFL-1.1): 400 installed` })).concat([{ type: 'done', message: 'Restart PowerPoint to use the new fonts.' }]) }; },
+    loadChecked: async (k) => ({ ...(checked[k] || {}) }),
+    setChecked: async (k, slide, sig) => { checked[k] = { ...(checked[k] || {}) }; if (sig) checked[k][slide] = { sig }; else delete checked[k][slide]; return { ok: true }; },
+    vote: async (r) => { votes.push({ ...r, t: new Date().toISOString() }); return { ok: true }; },
+    loadVotes: async (sha) => ({ dir: '(preview)', total: votes.length, up: votes.filter((v) => v.vote === 'up').length, deck: votes.filter((v) => v.deck_sha12 === sha) }),
     discardReview: async () => {}, tempSize: async () => ({ bytes: 36e6 }), clearTemp: async () => ({ bytes: 2e6 }),
     loadReview: async () => ({ dir: `${location.origin}${ROOT}/${BUNDLE}`, data: await (await fetch(`${ROOT}/${BUNDLE}/review.json`)).json() }),
     onEngineEvent: (cb) => { listeners.push(cb); return () => {}; },

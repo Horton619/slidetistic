@@ -39,6 +39,8 @@ const DEFAULTS = {
   watchFolder: '',
   presets: {},                 // { canva: { F001: {check:true, fix:true}, … }, … }
   lastTab: 'review',
+  tuningMode: false,           // Diagnostics: 👍/👎 on changed slides, for tuning the layout rules (David)
+  feedbackFolder: '',          // '' = the shared Dropbox suite's _feedback, else userData/feedback
   window: { width: 1360, height: 860 },
 };
 const settingsFile = () => path.join(app.getPath('userData'), 'slidetistic-settings.json');
@@ -334,6 +336,113 @@ ipcMain.handle('review:load', (_e, deckId) => {
   catch (_) { return null; }
 });
 
+// ---------------------------------------------------------------------------------------------
+// Tuning votes (David 2026-10-11): one JSON line per vote, one file per machine so the Mac and the PC
+// never write the same Dropbox file. `slidetistic tune` reads them. No slide text is stored.
+
+function feedbackDir() {
+  if (settings.feedbackFolder) return settings.feedbackFolder;
+  const home = app.getPath('home');
+  const suites = [path.join(home, 'Library', 'CloudStorage', 'Dropbox', 'SlideTistic Test Suite'),
+                  path.join(home, 'Dropbox', 'SlideTistic Test Suite')];
+  const suite = suites.find((p) => fs.existsSync(p));
+  return suite ? path.join(suite, '_feedback') : path.join(app.getPath('userData'), 'feedback');
+}
+const machineName = () => os.hostname().replace(/\.local(domain)?$/i, '').replace(/[^\w.-]+/g, '-');
+
+function readVotes() {
+  const dir = feedbackDir();
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => /^votes-.*\.jsonl$/.test(f)); } catch (_) { return []; }
+  const rows = [];
+  for (const f of files) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(dir, f), 'utf8'); } catch (_) { continue; }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push(JSON.parse(line)); } catch (_) { /* a half-synced last line */ }
+    }
+  }
+  rows.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+  const latest = new Map();
+  for (const r of rows) latest.set(`${r.deck_sha12}|${r.slide}|${r.tuning_sig}`, r);
+  return [...latest.values()].filter((r) => r.vote === 'up' || r.vote === 'down');
+}
+
+ipcMain.handle('feedback:vote', (_e, record) => {
+  const dir = feedbackDir();
+  const row = { t: new Date().toISOString(), machine: machineName(), app: app.getVersion(), ...record };
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, `votes-${machineName()}.jsonl`), JSON.stringify(row) + '\n');
+    return { ok: true };
+  } catch (err) {
+    log('error', 'vote not saved', err.message);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('feedback:load', (_e, deckSha) => {
+  const all = readVotes();
+  const up = all.filter((r) => r.vote === 'up').length;
+  return { dir: feedbackDir(), total: all.length, up, deck: all.filter((r) => r.deck_sha12 === deckSha) };
+});
+
+// "✓ Checked" marks on broken (red) slides (David 2026-10-12): kept per deck fingerprint, so reopening the
+// same deck shows what the operator already went through. A slide's mark only counts while its red
+// findings are the ones that were checked (the renderer passes their signature).
+const checkedFile = () => path.join(app.getPath('userData'), 'checked-slides.json');
+function readChecked() {
+  try { return JSON.parse(fs.readFileSync(checkedFile(), 'utf8')); } catch (_) { return {}; }
+}
+ipcMain.handle('checked:load', (_e, key) => readChecked()[key] || {});
+ipcMain.handle('checked:set', (_e, key, slide, sig) => {
+  const all = readChecked();
+  const marks = { ...(all[key] || {}) };
+  if (sig) marks[slide] = { sig, t: new Date().toISOString() }; else delete marks[slide];
+  all[key] = marks;
+  try {
+    fs.writeFileSync(checkedFile(), JSON.stringify(all));
+    return { ok: true };
+  } catch (err) {
+    log('error', 'checked mark not saved', err.message);
+    return { error: err.message };
+  }
+});
+
+// Free fonts (F009, David 2026-10-12). No PowerPoint involved, so these run beside the job queue.
+function engineJson(cliArgs, timeout) {
+  return new Promise((resolve) => {
+    const { cmd, args, cwd, env } = engineCommand(cliArgs);
+    execFile(cmd, args, { cwd, env, timeout, maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const events = String(stdout || '').split('\n').filter((l) => l.trim().startsWith('{')).map((l) => {
+        try { return JSON.parse(l); } catch (_) { return null; }
+      }).filter(Boolean);
+      if (err && !events.length) log('error', cliArgs.slice(0, 2).join(' '), err.message, String(stderr || '').slice(-400));
+      resolve({ events, error: err && !events.length ? (String(stderr || '').trim().split('\n').pop() || err.message) : null });
+    });
+  });
+}
+ipcMain.handle('fonts:get', async (_e, file, families) => {
+  const r = await engineJson(['fonts', 'get', file, '--install', '--json', ...families.flatMap((f) => ['--family', f])], 5 * 60e3);
+  log('info', 'fonts get', families.join(', '), r.events.filter((e) => e.type === 'font').map((e) => e.message).join(' | '));
+  return r;
+});
+// Testing aid (David 2026-10-12): the deck's fonts in '<deck> - fonts' next to it, named by what they are;
+// installed / Creative Cloud fonts copied, free ones downloaded. Then show the folder in Finder/Explorer.
+ipcMain.handle('fonts:collect', async (_e, file) => {
+  const r = await engineJson(['fonts', 'collect', file, '--json'], 5 * 60e3);
+  const done = r.events.find((e) => e.type === 'done');
+  if (done?.folder) shell.showItemInFolder(path.join(done.folder, 'FONTS.txt'));
+  return { ...r, folder: done?.folder || null };
+});
+function refreshFontCatalog() {
+  engineJson(['fonts', 'catalog', '--json'], 60e3).then((r) => {
+    const ev = r.events[0];
+    if (ev) log(ev.type === 'error' ? 'warn' : 'info', 'font catalog:', ev.message);
+  });
+}
+
 ipcMain.handle('report:export', async (_e, deckId, deckName) => {
   const src = path.join(reviewDir(deckId), 'report.html');
   if (!fs.existsSync(src)) return { error: 'Repair the deck first: the report is made during repair.' };
@@ -504,5 +613,6 @@ app.whenReady().then(() => {
   startWatching();
   setupUpdater();
   log('info', 'started', app.getVersion(), os.platform());
+  setTimeout(refreshFontCatalog, 20e3);      // weekly free-font list; never during a scan's first moments
 });
 app.on('window-all-closed', () => app.quit());

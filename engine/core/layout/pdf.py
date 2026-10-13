@@ -162,6 +162,9 @@ class PdfLayout:
         self.deck, self.renderer, self.path = deck, renderer, path
         self._pages: dict[int, list[Line]] | None = None
         self._by_slide: dict[int, dict[int, ShapeText]] = {}
+        self._pdf = None
+        self._page_of: dict[int, int] = {}
+        self._gray: dict[int, object] = {}
 
     def _load(self):
         if self._pages is not None:
@@ -172,11 +175,13 @@ class PdfLayout:
                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
                              check=True).stdout
         pages = parse_bbox_html(out)
+        self._pdf = pdf
         self._pages, page = {}, 0
         for n, slide in enumerate(self.deck.slides, 1):
             if not is_hidden(slide):
                 page += 1
                 self._pages[n] = pages.get(page, [])
+                self._page_of[n] = page
 
     def slide(self, slide_number: int) -> dict[int, ShapeText]:
         """{shape id: ShapeText} for every text-bearing shape on the slide."""
@@ -192,6 +197,92 @@ class PdfLayout:
 
     def measure(self, slide_number: int, shape_id: int) -> ShapeText | None:
         return self.slide(slide_number).get(shape_id)
+
+    # --- ink: what the letters actually cover (David 2026-10-12) --------------------------------------
+    # A line box spans the font's whole ascent and descent, far more than the letters (a script title's box
+    # reached 1 in above its tallest letter). Two boxes overlapping, or a box crossing the slide edge, says
+    # little; the rendered picture says whether letters really meet or are cut off.
+
+    def page_gray(self, slide_number: int):
+        """The slide as PowerPoint drew it, greyscale (PIL), ~120 px per inch. None without a render."""
+        if slide_number not in self._gray:
+            self._load()
+            page = self._page_of.get(slide_number)
+            img = None
+            if page and self._pdf is not None and hasattr(self.renderer, "page_image"):
+                import io
+                from PIL import Image
+                width = int(self.deck.slide_width / 914400 * 120)
+                img = Image.open(io.BytesIO(self.renderer.page_image(self._pdf, page, width=width))).convert("L")
+            self._gray[slide_number] = img
+        return self._gray[slide_number]
+
+    def _crop(self, slide_number, left, top, right, bottom):
+        img = self.page_gray(slide_number)
+        if img is None:
+            return None
+        sx, sy = img.width / self.deck.slide_width, img.height / self.deck.slide_height
+        box = (max(0, int(left * sx)), max(0, int(top * sy)), min(img.width, int(right * sx) + 1),
+               min(img.height, int(bottom * sy) + 1))
+        if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+            return None
+        return img.crop(box)
+
+    def letters_apart(self, slide_number: int, a: Line, b: Line) -> bool | None:
+        """True when the picture shows a clean pixel row with letters above it AND letters below it, between
+        the two lines' letter zones, where they overlap sideways (stacked map labels: 'IL' over '331').
+        A blank row with ink on one side only is just the empty space inside a line (above the capitals,
+        below the baseline): it proves nothing, so text drawn over text still counts. None without a picture."""
+        from ..fit import letter_zone
+        x0, x1 = max(a.left, b.left), min(a.right, b.right)
+        if x1 <= x0:
+            return True
+        (ta, ba), (tb, bb) = letter_zone(a), letter_zone(b)
+        pad = max(a.bottom - a.top, b.bottom - b.top)
+        around = self._crop(slide_number, min(a.left, b.left) - pad, min(a.top, b.top) - pad,
+                            max(a.right, b.right) + pad, max(a.bottom, b.bottom) + pad)
+        zone = self._crop(slide_number, x0, min(ta, tb), x1, max(ba, bb))
+        if around is None or zone is None:
+            return None
+        bg = _background(around)
+        px, w = zone.load(), zone.width
+        allow = max(1, w // 200)
+        inked = [sum(1 for x in range(w) if abs(px[x, y] - bg) > INK_DIFF) > allow for y in range(zone.height)]
+        seen_ink = False
+        for y, ink in enumerate(inked):
+            if ink:
+                seen_ink = True
+            elif seen_ink and any(inked[y + 1:]):
+                return True
+        return False
+
+    def cut_off(self, slide_number: int, line: Line, edge: str) -> bool | None:
+        """True when letters of `line` touch the slide `edge` in the picture (really cut off); False when the
+        edge is clean there (only the line box crosses it). None when there's no picture."""
+        W, H = self.deck.slide_width, self.deck.slide_height
+        strip_px = 2 * 914400 / 120                     # the outermost ~2 pixels
+        rect = {"top": (line.left, 0, line.right, strip_px), "bottom": (line.left, H - strip_px, line.right, H),
+                "left": (0, line.top, strip_px, line.bottom), "right": (W - strip_px, line.top, W, line.bottom)}[edge]
+        near = {"top": (line.left, 0, line.right, max(line.bottom, strip_px)),
+                "bottom": (line.left, min(line.top, H - strip_px), line.right, H),
+                "left": (0, line.top, max(line.right, strip_px), line.bottom),
+                "right": (min(line.left, W - strip_px), line.top, W, line.bottom)}[edge]
+        strip, around = self._crop(slide_number, *rect), self._crop(slide_number, *near)
+        if strip is None or around is None:
+            return None
+        bg = _background(around)
+        return sum(1 for v in strip.getdata() if abs(v - bg) > INK_DIFF) > 2
+
+
+INK_DIFF = 60          # grey levels between a letter pixel and the background around it (JPEG noise is < 40)
+
+
+def _background(img) -> int:
+    """The most common grey level, in bands of 8 (letters cover well under half of the area around them)."""
+    hist = img.histogram()
+    bands = [sum(hist[i:i + 8]) for i in range(0, 256, 8)]
+    best = max(range(len(bands)), key=bands.__getitem__)
+    return best * 8 + 4
 
 
 @dataclass

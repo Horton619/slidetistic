@@ -27,6 +27,11 @@ class Finding:
     informational: bool = False
 
     @property
+    def is_note(self) -> bool:
+        """A low-priority yellow (David 2026-10-12): shown under Notes, not counted with the yellows."""
+        return self.status == Status.YELLOW and bool(self.evidence.get("note"))
+
+    @property
     def key(self) -> tuple:
         """Identity used to match a finding between the scan and the re-scan."""
         return (self.check_id, self.slide, self.shape_id, self.subject)

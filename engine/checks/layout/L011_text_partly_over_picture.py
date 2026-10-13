@@ -11,12 +11,13 @@ class TextPartlyOverPicture(Check):
     report_only = True
     requires = ["layout"]
     sources = ["any"]
-    thresholds = ["overlap_min_pt"]
+    thresholds = ["overlap_min_pt", "l011_note_below_share_pct"]
 
     def detect(self, deck, ctx):
         if ctx.layout is None:
             return []
         tol = self.threshold(ctx, "overlap_min_pt") * EMU_PER_PT
+        note_below = self.threshold(ctx, "l011_note_below_share_pct") / 100
         shapes = deck.iter_shapes()
         names = {(sv.slide_number, sv.shape_id): sv.name for sv in shapes}
         findings = []
@@ -38,5 +39,7 @@ class TextPartlyOverPicture(Check):
                             slide=n, shape_id=sid, shape_name=names.get((n, sid)), subject=f"over {p.shape_id}",
                             evidence={"picture": p.name, "share": round(share, 2), "box_emu": [l, t, r, b],
                                       "rule": "drawn text area intersects the picture but isn't fully inside it "
-                                              "(fully inside = assumed intentional)"}))
+                                              "(fully inside = assumed intentional)",
+                                      # A sliver of overlap is low priority (David 2026-10-12: yellows must be worth it)
+                                      **({"note": True} if share < note_below else {})}))
         return findings

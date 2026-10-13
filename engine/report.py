@@ -27,7 +27,7 @@ h1{margin:4px 0 2px;font-size:24px}h2{font-size:17px;margin:34px 0 12px;padding-
 .frame img{display:block;width:100%}.cap{display:block;color:var(--dim);font-size:12px;margin:0 0 4px}
 .box{position:absolute;--k:var(--accent);outline:2px solid var(--k);outline-offset:3px;border-radius:2px;cursor:help}
 .box.font{--k:#9B8CFF}.box.placement{--k:#22D3EE}.box.layout{--k:#F472B6}.box.media{--k:#60A5FA}.box.content{--k:#E5E7EB}
-.box.yellow{outline-style:dashed}.box.red{outline-width:3px}
+.box.yellow{outline-style:dashed}.box.red{outline-width:3px}.box.note{outline-style:dotted;opacity:.55}
 .box .tag{display:none;position:absolute;left:-3px;top:-21px;z-index:3;background:var(--k);color:#070910;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap}
 .box.red .tag,.box:hover .tag{display:block}.box.red .tag::before{content:"✕ ";color:#7a0010}
 .box:hover{z-index:4}
@@ -117,10 +117,11 @@ def build(result, checks, out: Path, *, source: str | None = None, visuals=None,
                     _frame("As PowerPoint draws it", v.before_png, v.before_boxes, diagnostic)
                 parts.append(f"<section class=slide id=slide-{v.slide}><h3>Slide {v.slide}</h3>"
                              f"<div class={'pair' if result.output_path else 'single'}>{pair}</div></section>")
-        same = [v.slide for v in visuals if v.tier == 4]
-        if same:
-            parts.append(f"<h3 class=tier>4. {e(visual.TIERS[4])} <small>· slide{'s' * (len(same) > 1)} "
-                         f"{e(_ranges(same))}</small></h3>")
+        for tier in (4, 5):
+            same = [v.slide for v in visuals if v.tier == tier]
+            if same:
+                parts.append(f"<h3 class=tier>{tier}. {e(visual.TIERS[tier])} <small>· slide{'s' * (len(same) > 1)} "
+                             f"{e(_ranges(same))}</small></h3>")
     else:
         parts.append(f"<p class=note>{e(visual_note or 'No slide changed visually.')}</p>")
 

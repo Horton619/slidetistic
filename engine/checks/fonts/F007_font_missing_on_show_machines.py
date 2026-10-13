@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 from engine.core import Check, Finding, Status
 from engine.core import fonts, rules
 
@@ -13,17 +11,24 @@ class FontMissingOnShowMachines(Check):
     sources = ["canva", "google", "any"]
 
     def detect(self, deck, ctx):
-        covered = (rules.names("office_fonts") | fonts.embedded_families(deck) | ctx.crew_fonts
-                   | {k.casefold() for k in rules.load("canva_only_fonts")})   # F004 reports those
-        by_family = defaultdict(list)
-        for r in fonts.font_refs(deck):
-            fam = fonts.normalized_family(r.typeface)
-            if fam.casefold() not in covered and r.typeface.casefold() not in covered:
-                by_family[fam].append(r)
+        by_family = fonts.uncovered(deck, ctx)       # Canva-only fonts are left to F004
         mac_only = {k.casefold(): v for k, v in rules.load("mac_only_fonts").items()}
         cloud, windows = rules.names("conditional_fonts", "office_cloud"), rules.names("conditional_fonts", "windows")
+        from engine.core.font_use import visible_fonts
+        drawn = {fonts.normalized_family(v["family"]).casefold() for v in visible_fonts(deck).values()} if by_family else set()
         findings = []
         for fam, group in sorted(by_family.items()):
+            if fam.casefold() not in drawn and not any(r.typeface.casefold() in drawn for r in group):
+                # Named in a master, layout, theme or empty run, but no shown text uses it (David 2026-10-12;
+                # 58 of 116 suite reds, checked against PowerPoint's PDFs). PowerPoint may still warn about it.
+                findings.append(Finding(self.id, Status.YELLOW,
+                    f"{fam} is named in the deck but no text on any slide uses it ({fonts.where(group)}). "
+                    "PowerPoint may list it as missing; nothing on screen changes.",
+                    subject=fam, evidence={**fonts.usage_evidence(group), "names": sorted({r.typeface for r in group}),
+                                           "drawn": False, "note": True,
+                                           "rule": "no run with text resolves to this font (slides, SmartArt, charts, "
+                                                   "layout/master text; inheritance through placeholders and theme)"}))
+                continue
             swap = mac_only.get(fam.casefold())
             if fam.casefold() in cloud:
                 findings.append(Finding(self.id, Status.YELLOW,

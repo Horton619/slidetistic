@@ -123,12 +123,36 @@ def scale_font(edits, sv, factor: float, label: str) -> bool:
 
 # --- collisions: every move/widen is checked against the other text on the slide first ------------
 
+def letter_zone(line) -> tuple[float, float]:
+    """Top and bottom of where a line's letters are: from cap height to the baseline. A line box also holds
+    the font's empty ascent above the capitals and the descender space below (about 17 % and 19 % of it for
+    common fonts), so stacked labels' boxes overlap by a third with no letters meeting (David 2026-10-12:
+    "IL" over "331" on a map). Descenders reaching into the next line's empty space don't count."""
+    from . import rules
+    th = rules.load("thresholds")
+    h = line.bottom - line.top
+    return line.top + h * th.get("letter_top_pct", 17) / 100, line.top + h * th.get("letter_baseline_pct", 81) / 100
+
+
+def _word_spans(line, tol) -> list[tuple[float, float]]:
+    """The line's words left→right when they're known and sit inside the line, else the whole line. Two text
+    boxes often share one line in Canva/Google exports, their words interleaving ("First 10 | Elementary |
+    School Hub"): the line boxes overlap, the words never do (David 2026-10-12)."""
+    if line.boxes and line.boxes[0].left >= line.left - tol and line.boxes[-1].right <= line.right + tol:
+        return [(w.left, w.right) for w in line.boxes]
+    return [(line.left, line.right)]
+
+
 def lines_collide(la, lb, tol) -> bool:
-    """Same rule as L010: overlap sideways, and vertically by more than a quarter of a line's height
-    (line boxes include the font's full ascent/descent, so neighbours touch without the letters meeting)."""
-    w = min(la.right, lb.right) - max(la.left, lb.left)
-    h = min(la.bottom, lb.bottom) - max(la.top, lb.top)
-    return w > tol and h > max(tol, 0.25 * min(la.height, lb.height))
+    """Same rule as L010 (without a picture): a word of one overlaps a word of the other sideways, and the
+    letter zones overlap vertically."""
+    if min(la.right, lb.right) - max(la.left, lb.left) <= tol:
+        return False
+    (ta, ba), (tb, bb) = letter_zone(la), letter_zone(lb)
+    if min(ba, bb) - max(ta, tb) <= tol:
+        return False
+    return any(min(ra, rb) - max(lft_a, lft_b) > tol
+               for lft_a, ra in _word_spans(la, tol) for lft_b, rb in _word_spans(lb, tol))
 
 
 def collision(slide_layout: dict, sid: int, predicted: list, tol) -> int | None:
@@ -142,8 +166,9 @@ def collision(slide_layout: dict, sid: int, predicted: list, tol) -> int | None:
 
 
 def shifted(lines, dx: float = 0, dy: float = 0) -> list:
-    from .layout.pdf import Line
-    return [Line(l.left + dx, l.top + dy, l.right + dx, l.bottom + dy, l.words, l.boxes) for l in lines]
+    from .layout.pdf import Line, Word
+    return [Line(l.left + dx, l.top + dy, l.right + dx, l.bottom + dy, l.words,
+                 [Word(w.text, w.left + dx, w.right + dx) for w in l.boxes]) for l in lines]
 
 
 def merged_line(top_line, width: float, sv, new_left: float, new_width: float):
@@ -280,14 +305,29 @@ def is_graphic(sv) -> bool:
 
 
 def obstacles(deck, slide_number: int, sid: int, current_lines) -> list[tuple]:
-    """Graphics this text doesn't overlap now: a fix must not slide text onto them (PAT 18: words fully
-    hidden behind an illustration; PAT 5: a bullet pushed under a chart). Ones it already overlaps (a
-    title on a photo, a text panel's own background) are fine."""
+    """Things this text doesn't overlap now, which a fix must not slide it onto: pictures (PAT 18: words fully
+    hidden behind an illustration; PAT 5: a bullet pushed under a chart) and, since 2026-10-12, filled shapes,
+    outlines and lines (David: a pull "hit other elements"; a title moved onto its green rule). Ones it already
+    overlaps (a title on a photo, a text panel's own background) are fine. Detection (is_graphic, L011) still
+    counts pictures only."""
+    from .shapes import CONNECTOR, GROUP
     out = []
+    slide_area = deck.slide_width * deck.slide_height
+    thin = 3 * 12700            # a rule line has no height: give it 3 pt so text can't slide onto it
     for sv in deck.slide_shapes(slide_number):
-        if not is_graphic(sv):
+        if sv.shape_id == sid or sv.bounds is None or sv.kind == GROUP:
             continue
-        box = (sv.bounds.left, sv.bounds.top, sv.bounds.right, sv.bounds.bottom)
+        # Pictures always; and (David 2026-10-12: a pull "hit other elements", a title moved onto its green rule)
+        # filled shapes, outlines and lines, except backgrounds. Ones the text already sits on are fine.
+        shape_like = sv.kind == CONNECTOR or has_fill(sv)
+        if not is_graphic(sv) and not (shape_like and sv.bounds.width * sv.bounds.height < 0.5 * slide_area):
+            continue
+        b = sv.bounds
+        box = (b.left, b.top, max(b.right, b.left + thin), max(b.bottom, b.top + thin))
+        if b.right - b.left < thin:
+            box = (b.left - thin / 2, box[1], b.left + thin / 2, box[3])
+        if b.bottom - b.top < thin:
+            box = (box[0], b.top - thin / 2, box[2], b.top + thin / 2)
         if not any(hits_box(l, box) for l in current_lines):
             out.append(box)
     return out
@@ -361,7 +401,9 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
     return None
 
 
-def apply(edits, sv, plan: Plan, label: str):
+def apply(edits, sv, plan: Plan, label: str, finding=None, ctx=None):
+    from . import tuning
+    tuning.allow(edits, sv, tuning.describe_plan(edits.deck, sv, plan, finding, ctx, edits.check_id))
     if plan.font < 1 and not scale_font(edits, sv, plan.font, label):
         return False
     if plan.spacing < 1:
@@ -401,3 +443,81 @@ def choices(ctx, threshold) -> tuple[tuple, tuple]:
     fonts = tuple(f for f in (1.0, 0.95, 0.9, 0.85, 0.8) if f >= cap - 1e-9)
     spacings = tuple(x for x in (1.0, 0.95, 0.9, 0.85) if x >= floor - 1e-9)
     return fonts, spacings
+
+
+# --- where text sits (David 2026-10-12): on a shape, or in a header/footer band --------------------
+
+FOOTER_PLACEHOLDERS = ("FOOTER", "SLIDE_NUMBER", "DATE", "HEADER")
+
+
+def has_fill(sv) -> bool:
+    """Visibly drawn: a picture, or a shape with a fill or an outline (own or from its theme style)."""
+    from .shapes import PICTURE
+    if sv.kind == PICTURE:
+        return True
+    el = sv.shape.element
+    sp_pr = el.find(qn("p:spPr"))
+    if sp_pr is not None:
+        if any(sp_pr.find(qn(f"a:{t}")) is not None for t in ("solidFill", "gradFill", "blipFill", "pattFill")):
+            return True
+        ln = sp_pr.find(qn("a:ln"))
+        if ln is not None and len(ln) and ln.find(qn("a:noFill")) is None:
+            return True
+        if sp_pr.find(qn("a:noFill")) is not None:
+            return False
+    style = el.find(qn("p:style"))
+    ref = style.find(qn("a:fillRef")) if style is not None else None
+    return ref is not None and ref.get("idx") not in (None, "0")
+
+
+def backing_shape(deck, sv, min_overlap: float = 0.8):
+    """The filled shape this text box sits on (≥ `min_overlap` of the box over it), smallest first; None.
+    Backgrounds (half the slide or more) don't count. The text's own fill moves with it anyway.
+    David 2026-10-12: moving text off its shape broke the design (votes: 1 👍, 58 👎)."""
+    from .shapes import CONNECTOR, GROUP
+    if sv.bounds is None:
+        return None
+    b = sv.bounds
+    area = max(b.width * b.height, 1)
+    slide_area = deck.slide_width * deck.slide_height
+    best = None
+    for o in deck.slide_shapes(sv.slide_number):
+        if o.shape_id == sv.shape_id or o.bounds is None or o.kind in (GROUP, CONNECTOR) or o.rotation:
+            continue
+        ob = o.bounds
+        o_area = ob.width * ob.height
+        if o_area >= 0.5 * slide_area or not has_fill(o):
+            continue
+        w = min(b.right, ob.right) - max(b.left, ob.left)
+        h = min(b.bottom, ob.bottom) - max(b.top, ob.top)
+        if w > 0 and h > 0 and w * h / area >= min_overlap and (best is None or o_area < best[0]):
+            best = (o_area, o)
+    return best[1] if best else None
+
+
+def edge_band(deck, sv, box, pct: float) -> str:
+    """'top' / 'bottom' when the drawn text sits entirely in the header or footer band (`pct` of the slide
+    height), or 'placeholder' for footer / slide-number / date / header placeholders; else ''.
+    David 2026-10-12: header and footer text is placed on purpose; moving it in caused collisions."""
+    if getattr(sv.shape, "is_placeholder", False) if sv is not None else False:
+        try:
+            if str(sv.shape.placeholder_format.type).split(" ")[0].split(".")[-1] in FOOTER_PLACEHOLDERS:
+                return "placeholder"
+        except (AttributeError, ValueError):
+            pass
+    if box is None:
+        return ""
+    H = deck.slide_height
+    _, t, _, b = box
+    if b <= H * pct / 100:
+        return "top"
+    if t >= H * (1 - pct / 100):
+        return "bottom"
+    return ""
+
+
+def area_pct(deck, sv) -> float:
+    """The text box's share of the slide, in percent."""
+    if sv is None or sv.bounds is None:
+        return 0.0
+    return 100 * sv.bounds.width * sv.bounds.height / (deck.slide_width * deck.slide_height)

@@ -56,6 +56,31 @@ def main(argv=None) -> int:
     cl.add_argument("--all", action="store_true", help="every leftover, not just ones over 6 hours old")
     cl.add_argument("--json", action="store_true")
 
+    fn = sub.add_parser("fonts", help="free fonts (F009): catalog, get, installed, uninstall")
+    fsub = fn.add_subparsers(dest="fonts_cmd", required=True)
+    fc = fsub.add_parser("catalog", help="update the free-font list if it's a week old (--refresh: now)")
+    fc.add_argument("--refresh", action="store_true")
+    fc.add_argument("--json", action="store_true")
+    fg = fsub.add_parser("get", help="download (and with --install, install) a deck's free fonts")
+    fg.add_argument("file")
+    fg.add_argument("--family", action="append", help="only these families (default: every F009 finding)")
+    fg.add_argument("--install", action="store_true")
+    fg.add_argument("--json", action="store_true")
+    fl = fsub.add_parser("collect", help="the deck's fonts in a folder next to it (links to installed ones)")
+    fl.add_argument("file")
+    fl.add_argument("--out", help="folder (default: '<deck> - fonts' next to the deck)")
+    fl.add_argument("--json", action="store_true")
+    fi = fsub.add_parser("installed", help="fonts SlideTistic installed")
+    fi.add_argument("--json", action="store_true")
+    fu = fsub.add_parser("uninstall", help="remove fonts SlideTistic installed")
+    fu.add_argument("family", nargs="?")
+    fu.add_argument("--all", action="store_true")
+    fu.add_argument("--json", action="store_true")
+    tn = sub.add_parser("tune", help="report on David's 👍/👎 votes and propose layout-fix rules")
+    tn.add_argument("--votes", help="feedback folder (default: the Dropbox suite's _feedback)")
+    tn.add_argument("--apply", metavar="P#", help="add a proposal from the last report to rules/tuning.yaml")
+    tn.add_argument("--out", help="write the report (Markdown) here")
+    tn.add_argument("--json", action="store_true")
     md = sub.add_parser("media", help="media inventory + download list")
     md.add_argument("file")
     md.add_argument("--csv", help="write the inventory to this .csv (download list goes beside it)")
@@ -80,6 +105,11 @@ def main(argv=None) -> int:
                 print(f"{m['id']}  {m['title']}  [{m['group']}]  fix={'on' if m['default_fix'] else 'off'}")
         return 0
 
+    if args.cmd == "fonts":
+        return _fonts(args, checks)
+    if args.cmd == "tune":
+        from . import tune
+        return tune.main(args)
     if args.cmd == "cleanup":
         from .keynote import purge_cache
         from .render import purge_leftovers
@@ -340,6 +370,81 @@ def _print_human(result: runner.Result):
           + (f" · {s['tool_error']} couldn't run" if s["tool_error"] else ""))
     if result.output_path:
         print(f"Saved: {result.output_path}")
+
+
+def _fonts(args, checks) -> int:
+    """JSON-lines events with --json (the app's Get fonts button), plain lines otherwise."""
+    from .core import fonts_catalog, fonts_install
+    out = (lambda ev: print(json.dumps(ev), flush=True)) if args.json else (lambda ev: print(ev.get("message", ev)))
+    if args.fonts_cmd == "catalog":
+        try:
+            st = fonts_catalog.refresh(force=args.refresh)      # without --refresh: only when a week old
+        except Exception as e:  # noqa: BLE001 — network boundary: report, don't crash
+            out({"type": "error", "message": f"Couldn't download the font list: {e}"})
+            return 1
+        out({"type": "catalog", **st, "message": f"{st['families']} free fonts, list from {st['fetched'] or 'never'}"})
+        return 0
+    if args.fonts_cmd == "collect":
+        try:
+            fonts_catalog.refresh()
+        except Exception as e:  # noqa: BLE001 — offline: the saved list still works
+            out({"type": "warn", "message": f"Font list not refreshed ({e}); using the saved one"})
+        res = fonts_install.collect(args.file, args.out, emit=out)
+        for f in res["fonts"]:
+            out({"type": "font", **f, "message": f"{f['name']}: {f['how']}"})
+        out({"type": "done", "folder": res["folder"], "message": f"Fonts collected in {res['folder']}"})
+        return 0
+    if args.fonts_cmd == "installed":
+        for e in fonts_install._log():
+            out({"type": "installed", **e, "message": f"{e['family']}: {e['file']}"})
+        return 0
+    if args.fonts_cmd == "uninstall":
+        if not args.family and not args.all:
+            out({"type": "error", "message": "Name a family, or --all"})
+            return 2
+        for f in fonts_install.uninstall(None if args.all else args.family):
+            out({"type": "removed", "file": f, "message": f"Removed {f}"})
+        return 0
+    # get
+    from .core import Deck
+    from .core.runner import RunConfig, make_context
+    try:
+        fonts_catalog.refresh()
+    except Exception as e:  # noqa: BLE001 — offline: the cached list still works
+        out({"type": "warn", "message": f"Font list not refreshed ({e}); using the saved one"})
+    f009 = next(c for c in checks if c.id == "F009")
+    wanted = {f.casefold() for f in args.family or []}
+    found = [f for f in f009().detect(Deck(args.file), make_context(RunConfig())) if f.subject != "catalog"
+             and (not wanted or f.subject.casefold() in wanted)]
+    if not found:
+        out({"type": "done", "families": 0, "message": "No free fonts to get for this deck"})
+        return 0
+    code = 0
+    for f in found:
+        variants = [tuple(v) for v in f.evidence["variants"]]
+        out({"type": "progress", "family": f.subject, "message": f"Downloading {f.subject}…"})
+        try:
+            files = fonts_install.download(f.subject, variants)
+            license_ = f.evidence.get("license")
+            if not license_ and f.evidence.get("source") == "fontsource":
+                license_ = fonts_catalog.details(f.evidence["font_id"]).get("license")
+            license_ = license_ or "open licence (Google Fonts)"
+        except Exception as e:  # noqa: BLE001 — network boundary
+            out({"type": "font", "family": f.subject, "ok": False, "message": f"{f.subject}: download failed ({e})"})
+            code = 1
+            continue
+        results = fonts_install.install(f.subject, files, deck=str(args.file)) if args.install else \
+            [{**fonts_install._strip(x), "installed": False} for x in files]
+        ok = all(r.get("installed") or r.get("problem") == "already installed" for r in results) if args.install \
+            else all(x["problem"] is None for x in files)
+        out({"type": "font", "family": f.subject, "license": license_, "ok": ok, "files": results,
+             "message": f"{f.subject} ({license_}): " + ", ".join(
+                 f"{x['weight']}{' italic' if x['style'] == 'italic' else ''} "
+                 f"{'installed' if x.get('installed') else x.get('problem') or 'ready'}" for x in results)})
+        code = code or (0 if ok else 1)
+    out({"type": "done", "families": len(found), "installed": args.install,
+         "message": "Restart PowerPoint to use the new fonts." if args.install else "Downloaded and checked (not installed)."})
+    return code
 
 
 if __name__ == "__main__":

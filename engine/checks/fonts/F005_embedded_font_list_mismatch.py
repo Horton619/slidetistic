@@ -66,11 +66,7 @@ def _misfiled(ef, s) -> bool:
 
 
 def _canva_pattern(ef, s) -> bool:
-    """'Roboto Bold' (regular slot) holding Roboto bold, or 'Calibri (MS)' holding Calibri: the
-    listed name is the real family plus a style word / alias that F001/F002 also fix in the text."""
-    split = fonts.split_style(ef.typeface)
-    style_ok = (split[1], split[2]) == (s.info.bold, s.info.italic) if split else s.info.slot == s.slot
-    return fonts.normalized_family(ef.typeface) == fonts.alias(s.info.family) and style_ok
+    return fonts.canva_weight_embed(ef, s)          # shared with F001, which renames only what F005 can re-file
 
 
 def _safe_to_move(ef, s, used: set[str]) -> bool:

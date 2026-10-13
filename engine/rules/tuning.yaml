@@ -1,0 +1,22 @@
+# Tuning gates (David 2026-10-11): layout fixes David's 👍/👎 votes say aren't worth making.
+# Written by hand or by `slidetistic tune --apply <id>` after David approves a proposal. A fix whose
+# description matches a gate is not made; its finding stays open ("worth a look").
+#
+# Gate fields:
+#   id:     T001, T002 … (never reused)
+#   check:  L001 | L008 | L009 | L010 (or a list)          optional
+#   fix:    move | resize | spacing | font | push (or a list) optional
+#   when:   feature: value | [values] | {min: x, max: y}   all must hold
+#   action: skip
+#   why:    plain words for the review ("David: moves under 0.1 in aren't worth it")
+#   votes:  the votes behind it (for the record)
+# Features: move_in, width_pct, font_pct, spacing_pct, role (title/header/body/text), in_group, words,
+#   font_pt, severity (red/yellow), problem, past_border_in, past_edge_in (L008), orphan_words, lines (L009),
+#   overlap_pt (L010), extra_lines (L001). See engine/core/tuning.py.
+gates:
+  - id: T001
+    check: L008
+    when: {severity: yellow, past_border_in: {max: 0.099}}
+    action: skip
+    why: "text less than 0.1 in into the safe border isn't worth moving"
+    votes: "round 2 (2026-10-12): avoids 15 👎 ('not worth it'), loses 1 👍; approved by David"

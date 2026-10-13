@@ -26,7 +26,7 @@ class TextOverlapsText(Check):
             slide_findings, built = [], []
             for i, a in enumerate(shapes):
                 for b in shapes[i + 1:]:
-                    hit = _first_overlap(a.lines, b.lines, tol)
+                    hit = _first_overlap(a.lines, b.lines, tol, lambda la, lb: _apart(ctx.layout, n, la, lb))
                     if not hit:
                         continue
                     la, lb = hit
@@ -41,7 +41,8 @@ class TextOverlapsText(Check):
                         slide=n, shape_id=a.shape_id, shape_name=names.get((n, a.shape_id)),
                         subject=f"with {b.shape_id}",
                         evidence={"other_shape": b.shape_id, "lines": [_desc(la), _desc(lb)], "box_emu": box,
-                                  "rule": "drawn lines overlap sideways and by more than a quarter of a line's height vertically"}))
+                                  "rule": "drawn lines overlap sideways and their letter zones (cap height to baseline) "
+                                          "overlap vertically, with no clean pixel row between the letters in the render"}))
             if len(slide_findings) > most:
                 # Not a "nudge one box" problem: usually a swapped font or a pasted diagram. One finding,
                 # no fix attempts (each costs a full search).
@@ -88,20 +89,27 @@ class TextOverlapsText(Check):
                                 accept=lambda o, t: o <= orphans_now and t <= lines_now
                                 and (limit is None or t <= limit),
                             band=self.threshold(ctx, "fit_wrap_band_pct") / 100)
-            if plan and fit.apply(edits, sv, plan, "clear colliding text"):
+            if plan and fit.apply(edits, sv, plan, "clear colliding text", finding, ctx):
                 return
         raise FixRefused("no width or font size (within the caps) separates these texts without other "
                          "problems; move one by hand")
 
 
-def _first_overlap(lines_a, lines_b, tol):
+def _first_overlap(lines_a, lines_b, tol, apart=lambda la, lb: False):
     """Rendered line boxes include the font's full ascent/descent, so neighbouring lines' boxes touch by
-    a few points without the letters meeting (PAT slide 27): fit.lines_collide has the rule."""
+    a few points without the letters meeting (PAT slide 27): fit.lines_collide has the rule. A pair the
+    picture shows apart (a clean pixel row between the letters) isn't a collision either."""
     for la in lines_a:
         for lb in lines_b:
-            if fit.lines_collide(la, lb, tol):
+            if fit.lines_collide(la, lb, tol) and not apart(la, lb):
                 return la, lb
     return None
+
+
+def _apart(layout, n, la, lb) -> bool:
+    """The rendered picture shows the two lines' letters separated (David 2026-10-12: map labels)."""
+    check = getattr(layout, "letters_apart", None)
+    return bool(check and check(n, la, lb))
 
 
 def _desc(line) -> str:

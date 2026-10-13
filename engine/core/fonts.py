@@ -109,6 +109,28 @@ def normalized_family(name: str) -> str:
     return alias(split[0] if split else name)
 
 
+def uncovered(deck, ctx) -> dict[str, list[FontRef]]:
+    """Families (normalized) used in the deck that aren't embedded, Office fonts, on the crew list or
+    Canva-only (F004 reports those), with their references. F007 and F009 share this rule."""
+    from collections import defaultdict
+    covered = (rules.names("office_fonts") | rules.names("office_bundled_fonts") | embedded_families(deck) | ctx.crew_fonts
+               | {k.casefold() for k in rules.load("canva_only_fonts")})
+    by_family = defaultdict(list)
+    for r in font_refs(deck):
+        fam = normalized_family(r.typeface)
+        if fam.casefold() not in covered and r.typeface.casefold() not in covered:
+            by_family[fam].append(r)
+    return by_family
+
+
+def canva_weight_embed(ef, s) -> bool:
+    """'Roboto Bold' (regular slot) holding Roboto bold, or 'Calibri (MS)' holding Calibri: the listed name is
+    the real family plus a style word / alias that F001/F002 also fix in the text, so F005 can re-file it."""
+    split = split_style(ef.typeface)
+    style_ok = (split[1], split[2]) == (s.info.bold, s.info.italic) if split else s.info.slot == s.slot
+    return normalized_family(ef.typeface) == alias(s.info.family) and style_ok
+
+
 def is_office_font(name: str) -> bool:
     return name.casefold() in rules.names("office_fonts")
 

@@ -1,4 +1,4 @@
-# Handoff: start here (updated 2026-10-11, end of the long Mac session)
+# Handoff: start here (updated 2026-10-12, Mac session: tuning, review, fonts)
 
 For any new Claude Code session, Mac or PC. Read this, then `CLAUDE.md` (how we work, rules, gotchas), then
 `SPEC.md` (what we're building; §11 is the dated decisions log). `docs/POLISH.md` is the parked UI/behaviour
@@ -7,26 +7,27 @@ suite protocol. The Dropbox suite's `_mailbox/` holds notes between the Mac and 
 
 ## 1. Where things stand
 
-- **Released:** v0.4.1 (tag `v0.4.1`, commit `23bf87a`): signed + notarized Mac DMG/ZIP and Windows NSIS
-  installer, all 8 files in one release. The release workflow now creates one draft up front (v0.4.0's uploads
-  were split across two releases; an empty duplicate **v0.4.0 draft** still exists on GitHub: harmless,
-  David hasn't okayed deleting it).
-- **Next release: v0.4.2** = v0.4.1 + `d868312` (placeholder fix, vanished-text safety) + `daa365c` (Keynote
-  ingest) + docs. Tagging it starts CI (~12 min). David's goal: install the **production** 0.4.2 on the PC and
-  test it, including the 0.4.0/0.4.1 → 0.4.2 auto-update.
+- **Released:** v0.4.2 (commit `8108db1`): signed + notarized Mac DMG/ZIP and Windows installer. The PC tested
+  the production build on 2026-10-11 and it passed: auto-update, clicker video, stand-ins, smoke test (mailbox
+  `20261011-1515-win-0.4.2-sweep.md`). The PC also pushed `9b44291`: tables only move, and renames wait out
+  Dropbox locks.
+- **Next release: v0.4.3** = everything in §3b (tuning, the review screen, fonts, the new layout heuristics).
 - **Repo is public** (`Horton619/slidetistic`): client decks, run results and anything quoting client text
-  never go in git. Signing secrets are set (all five).
-- **Machines:** Mac (Apple Silicon, PowerPoint 16.113, Keynote Creator Studio 15.4 + classic Keynote 14.5) and
-  David's Windows PC (Ryzen 7 2700X, PowerPoint 16 64-bit, Python 3.11.9, Node 16, gh). Each runs its own
-  Claude Code session; they talk through git and the Dropbox suite `_mailbox/`. The Mac is 2–3× faster per CPU
-  benchmark (loop 0.09 s vs 0.19 s; lxml 0.29 s vs 0.91 s).
+  never go in git. Signing secrets are set (all five). An empty duplicate **v0.4.0 draft** is still on GitHub:
+  harmless, and David hasn't okayed deleting it.
+- **Machines:** Mac (Apple Silicon, PowerPoint 16.113, Keynote Creator Studio 15.4, Creative Cloud) and David's
+  Windows PC (Ryzen 7 2700X, PowerPoint 16). Each runs its own Claude Code session; they talk through git and the
+  Dropbox suite `_mailbox/`.
 
-## 2. What David wants next (his words, 2026-10-11)
+## 2. What David wants next (2026-10-12)
 
-1. Commit + push, start a release cycle (0.4.2) "so we can test the full new exe from production on the PC".
-2. A fresh session with this handoff (the long session's context was full).
-3. Fine-tuning of which layout moves help is **later** ("we aren't quite at that point yet"); the review needs a
-   way for him to mark changes he agrees/disagrees with first (POLISH.md).
+1. **A round 3 of votes** on the v0.4.3 heuristics. Repair the suite in the app with Tuning mode on, then run
+   `tune`. Rounds so far: round 1 had 14 % approval (388 votes), round 2 had 48 % (103 votes).
+2. **Real text-collision examples:** none exist in the suite. All 17 earlier L010 reds were stacked labels or
+   interleaved text boxes, and the one left is invisible text. When David finds a real one (font rendering or
+   reflow), it becomes a fixture.
+3. **Open decisions:** font shrinking in L010/L008 (he wanted to see examples first, and those turned out to be the
+   box-vs-letter bug); embed-for-show guidance for Creative Cloud fonts.
 
 ## 3. What the 2026-10-11 session did (all on `main`)
 
@@ -78,6 +79,39 @@ a SHA-1 of every saved zip part before/after each change. Every pure-speed chang
   X001 detects Keynote exports by layout names (`rules/keynote_layouts.yaml`). App: "Converting from Keynote",
   then a KEYNOTE DETECTED banner saying it was converted and what to check.
 
+## 3b. What the 2026-10-12 session did
+
+- **Tuning mode** (`docs/TUNING.md`): 👍/👎 per changed slide → `_feedback/votes-<machine>.jsonl` (numbers only) →
+  `slidetistic tune` (approval by kind of change, proposals replayed against the votes, follow-up questions) →
+  `tune --apply` / hand-written gates in `rules/tuning.yaml`. Gate **T001**: no L008 pull for text under 0.1 in
+  into the border.
+- **Safe-zone fixes narrowed (L008),** from David's findings and 305 votes:
+  - the header/footer band (15 %) is never moved and isn't flagged for sitting in the border;
+  - near-edge pulls only for blocks ≥25 % of the slide;
+  - text on a filled shape moves with the shape, or not at all.
+- **Boxes vs letters** (David: "you are mis-reading overlapping text boxes as overlapping text"):
+  - "off the slide" now requires the render to show letters touching the edge (`PdfLayout.cut_off`);
+  - collisions use the letter zone (cap height → baseline; `fit.letter_zone`, `letter_top_pct` /
+    `letter_baseline_pct`), and a clean pixel row between letters clears them (`PdfLayout.letters_apart`);
+  - moves now avoid filled shapes, outlines and lines, not just text and pictures (`fit.obstacles`).
+- **F001 bug:** it renamed "X Bold" names the deck embeds a font under, which orphaned the embedded file and made
+  the text regular (Dealer Trust). It now renames only what F005 can refile (`fonts.canva_weight_embed`, shared).
+- **Review screen:**
+  - red/amber/accent/grey edges and badges per slide;
+  - a "Broken: x of y checked" strip with ✓ per red slide plus one "Whole deck" item, remembered per deck file;
+  - filter Everything / Broken + Look at / Broken only (**R**);
+  - a **Notes** level (yellow + `evidence["note"]`, not counted in `summary.yellow`; `summary.notes` instead).
+- **Fonts:**
+  - **F009**, free fonts: sources are Microsoft's Aptos ZIP (`rules/font_downloads.yaml`), then Fontsource, then
+    Google; the deck's name picks the entry and every file is name-checked;
+  - Fonts banner and tab (like Media), with Get (per-user install) and **Collect fonts next to deck** (copies,
+    readably named);
+  - Creative Cloud fonts are read for their names;
+  - F007: fonts no shown text uses are notes (`core/font_use.py`, checked against PowerPoint PDFs);
+  - 157 PowerPoint-bundled fonts count as covered (`rules/office_bundled_fonts.yaml`; F006's list stays
+    conservative);
+  - the design, research and sources are in `docs/F009_FONTSOURCE_DESIGN.md` §10–13.
+
 ## 4. Hard-won facts (don't rediscover)
 
 - **Electron:** 31.7.7 is SIGKILLed on macOS 26 → we use 32.3.3. New npm skips install scripts, so Electron's
@@ -100,6 +134,21 @@ a SHA-1 of every saved zip part before/after each change. Every pure-speed chang
   (32 decks incl. `media/` samples; `TEST_DECKS.md` lists what each triggers). `corpus/vault/` holds the same
   decks locally (git-ignored); `corpus/app-run/` has the app run's repaired decks.
 
+- **Line boxes are not letters** (2026-10-12): pdftotext's line box spans the font's whole ascent and descent (a
+  script title's box reached 1 in above its tallest letter). Never decide "off the slide" or "text over text" from
+  boxes alone: use `PdfLayout.cut_off` / `letters_apart` (the render) or `fit.letter_zone` (when predicting).
+- **Canva per-weight embeds:** "Roboto Bold" embedded under that name holds Roboto's Bold face. Mac PowerPoint 16.113
+  DOES use it as written (Dealer Trust rendered bold before any fix). Rename only together with an F005 refile.
+- **Office fonts:** PowerPoint ships 183 font families (`PowerPoint.app/Contents/Resources/DFonts`), and Office for
+  Windows installs the same set. `office_fonts.yaml` (26, F006 deletes embeds of these) stays conservative;
+  `office_bundled_fonts.yaml` (157) only means "not missing".
+- **Fontsource static files are misnamed** for variable families (Montserrat 400 = "Montserrat Thin"); Google's
+  CSS API with a legacy user agent gives correct, full-character-set TTFs. python.org Python can't verify HTTPS
+  without `truststore` / `certifi` (`engine/core/http.py`).
+- **Creative Cloud fonts** are hidden files (`~/Library/Application Support/Adobe/CoreSync/plugins/livetype/.r`,
+  Windows `%APPDATA%\Adobe\CoreSync\plugins\livetype\r`). They're read for names; Collect fonts copies them for
+  David's own show folders (his call, 2026-10-12). Activation can't be automated.
+
 ## 5. Suite results so far
 
 - No-layout, Mac vs PC: 31/31 identical (data checks match exactly across platforms).
@@ -112,23 +161,21 @@ a SHA-1 of every saved zip part before/after each change. Every pure-speed chang
   `--json` and read the `change` events (first job for engine work; candidate: also save them in the deck json).
   **The PC has not run the new code yet** (mailbox `20261011-1240-mac-release-0.4.2-requests.md`).
 
+- **2026-10-12 final** (`_runs/20261012-1748-mac-…-layout`, v0.4.3 engine): 31 decks, 0 crashes, 0 tool_errors,
+  5 second-repair changes. Reds 141 → 71 and yellows 1025 → 596 (+511 notes) against that morning's run; L010 reds 17 → 1.
+
 ## 6. Open, in order
 
-1. **PC:** install production 0.4.2; auto-update test (0.4.1 → 0.4.2); run both suites on the 0.4.2 commit and
-   compare with the Mac's; verify media stand-ins render pixel-identically on Windows (render `media/09` both ways);
-   **"When Clicked On" video plays on a clicker press in Windows PowerPoint** (suite `media/09`; only verified
-   on Mac so far); Poll Everywhere add-in tab storm on the PC (EDGE_CASES, open).
-2. Second-repair changes 14 → 0 (§5). Then `docs/POLISH.md` (red vs yellow in the review is David's newest ask).
-3. **Tidy the Dropbox suite, only AFTER the PC's 0.4.2 sweep is in and compared** (David, 2026-10-11: don't move
-   things while the PC is comparing). It's 1.5 GB (1.3 GB decks) and ~3,700 small files in `_runs/`, mostly page
-   images. Plan, all in one pass, with a mailbox note to the PC: (a) keep only the newest run per platform + mode,
-   archive/delete the rest; (b) `suite_run.py` stops saving page images unless asked; (c) move decks into
-   `decks/` (decks are matched by hash, but update SKIP.md, TEST_DECKS.md, `.corpus-path` and the test that
-   names a deck path); (d) handled mailbox notes go to `_mailbox/read/`.
-4. David's open questions: M008 ignores photos under 2 MB (flag smaller?); noisy checks (M009, X003, M008, M011,
-   G003 grouping, small L011 overlaps); accept corpus snapshot diffs; Fun-skin tagline list.
-5. Later: P005 click map, C007 remove-comments fix, F009 Google-font downloader, CI off deprecated Node 20 actions,
-   Windows `.ppt`/`.key` messages reviewed on the PC.
+1. **Round 3 of votes** on v0.4.3, then `tune`. Show David the real text-collision examples from the suite run
+   (§5).
+2. **PC:** test v0.4.3 production: the Fonts tab, Get fonts (Windows registry install: written but never run on
+   Windows), Collect fonts (no symlinks needed; it copies), Creative Cloud path on Windows, and the auto-update.
+3. **Decisions waiting on David:** font shrinking (L010/L008) after he sees real collisions; embed-for-show guidance
+   for Creative Cloud fonts; Dropbox suite tidy-up (§ earlier plan in this file's history: keep newest runs,
+   `_mailbox/read/`).
+4. **Yellows still high on some decks:** L011, C004, L009, M009 are the next tuning targets (median 10 per deck).
+5. Earlier items still open: M008 small photos, noisy checks (M009, X003, G003), corpus snapshot acceptance,
+   P005 click map, C007 fix, CI off Node 20 actions.
 
 ## 7. How David works (also in his global CLAUDE.md)
 
