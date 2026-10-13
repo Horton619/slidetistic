@@ -3,6 +3,7 @@ our copy on any error, a stopped engine's copy is closed by the next one, a stop
 export in progress, and the app hears heartbeats while PowerPoint works. No real PowerPoint here."""
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from tests.fixtures.builders import make_deck, text_box
 
 @pytest.fixture
 def mac(tmp_path, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("the Mac renderer's open-copies journal: POSIX paths and processes")
     monkeypatch.setattr(render, "OPEN_FILE", tmp_path / "open.json")
     monkeypatch.setattr(render, "STUCK_FILE", tmp_path / "stuck.json")
     r = render.MacPowerPointRenderer.__new__(render.MacPowerPointRenderer)
