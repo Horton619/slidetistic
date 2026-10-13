@@ -19,6 +19,9 @@ DECKS = HERE / "decks"
 def build(spec: Spec, folder: Path) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / spec.file
+    if spec.saved:      # a real PowerPoint save: the builder only documents what it replaced
+        assert path.exists(), f"{spec.file} is a saved PowerPoint file; it can't be regenerated"
+        return path
     if path.exists():
         path.unlink()
     spec.build(path)
@@ -41,7 +44,9 @@ def manifest() -> str:
     for s in SPECS:
         absent = ", ".join(str(a) if not isinstance(a, (tuple, list)) else " ".join(a) for a in s.absent)
         gap = s.xfail or ""
-        if s.real_ppt:
+        if s.saved:
+            gap += (" · " if gap else "") + "real PowerPoint save: " + s.saved
+        elif s.real_ppt:
             gap += (" · " if gap else "") + "needs a real-PowerPoint copy: " + s.real_ppt
         if s.needs:
             gap += (" · " if gap else "") + "needs " + ", ".join(s.needs)

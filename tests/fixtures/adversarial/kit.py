@@ -89,6 +89,11 @@ def set_app(prs, application="Microsoft Office PowerPoint", version="16.0000"):
     ns = root.nsmap.get(None)
     for tag, value in (("Application", application), ("AppVersion", version)):
         el = root.find(f"{{{ns}}}{tag}")
+        if tag == "AppVersion" and not value:
+            # An empty <AppVersion> makes PowerPoint ask to repair the deck (POWERPOINT_REJECTS.md); leave it out.
+            if el is not None:
+                root.remove(el)
+            continue
         if el is None:
             el = etree.SubElement(root, f"{{{ns}}}{tag}")
         el.text = value

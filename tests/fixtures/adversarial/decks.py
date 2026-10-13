@@ -62,6 +62,7 @@ class Spec:
     rename: str | None = None        # X002: the test copies the deck to this file name first
     needs: list = field(default_factory=list)        # "ffprobe", "catalog"
     real_ppt: str | None = None      # how to make the real-PowerPoint copy, when the XML here is approximate
+    saved: str | None = None         # the committed deck is a real PowerPoint save (what made it); never regenerated
     new: str | None = None           # section 5 / extra problems: how a check would detect it, is a fix safe
     overrides: dict = field(default_factory=dict)
     commit: bool = True              # False: built on demand by the test (too big for git)
@@ -537,8 +538,9 @@ def _(path):
 
 @deck("G001-text-overflows-unwrapped", "canva",
       "Box inside the slide, word wrap OFF, a long line runs past the right edge. The box is fine; the words aren't.",
-      expect=[E("G001", "problem")], layout=True,
-      xfail="without PowerPoint G001 only looks at the box; an unwrapped line longer than its box isn't estimated")
+      expect=[E("L008", "red")], layout=True,
+      xfail="needs PowerPoint: L008 judges drawn words (G001 only looks at boxes). Round 2 (Mac): L008 red, but its "
+            "fix moves the box 1 in left and reports green_fixed while most of the line is still off the slide")
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -549,8 +551,9 @@ def _(path):
 
 @deck("G002-autofit-off-overflow", "office2010",
       "Autofit off; 12 lines of 24 pt in a 2 in box near the bottom: the text runs below the slide, the box doesn't.",
-      expect=[E("G002", "problem")], layout=True,
-      xfail="without PowerPoint G002 only looks at the box bottom; overflowing text isn't estimated")
+      expect=[E("L008", "red")], layout=True,
+      xfail="needs PowerPoint: L008 judges drawn words (G002 only looks at the box). Round 2 (Mac): only 6 of 12 "
+            "lines are drawn, yet L008 says yellow 'reaches into the safe border'; the Mac PDF leaves the lost lines out")
 def _(path):
     prs = _office_deck()
     s = blank(prs)
@@ -641,13 +644,13 @@ LAYOUT_NOTE = "Layout check: run on the Mac. Without PowerPoint the L checks mus
 
 @deck("L001-title-zero-slack", "canva",
       "PAT pattern: single-line title in a box ~0.3% narrower than the line ('Calibri (MS) Bold' → Calibri bold "
-      "after F001/F002). Box width is an estimate: tune it in PowerPoint until the original just fits one line.",
-      layout=True, kind="layout", expect=[E("F002", "red")],
-      real_ppt="Open in PowerPoint, shrink the title box until the title is still one line with no slack, save.")
+      "after F001/F002). Width 12.715 in is the narrowest PowerPoint for Mac still draws on one line (found by "
+      "rendering in PowerPoint, 2026-10-13; 12.712 in wraps).",
+      layout=True, kind="layout", expect=[E("F002", "red")])
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
-    text(s, "Regional Grazing Outlook 2026", 1, 0.8, 13.81, 1.6, font="Calibri (MS) Bold", size=72, name="Title 1")
+    text(s, "Regional Grazing Outlook 2026", 1, 0.8, 12.715, 1.6, font="Calibri (MS) Bold", size=72, name="Title 1")
     text(s, "Rainfall, stocking rates and feed costs", 1, 3, 14, 1, font="Calibri (MS)", size=36)
     return save(prs, path)
 
@@ -1297,7 +1300,9 @@ CFB = bytes.fromhex("D0CF11E0A1B11AE1")
       "(stand-in: CFB header + stream names, not a real encrypted file). Should say 'password-protected'.",
       kind="robust", outcome="error",
       xfail="the message says 'damaged, an old .ppt renamed, or still downloading'; it never says password",
-      real_ppt="File ▸ Passwords ▸ Password to open: 'sample'; save as .pptx.")
+      real_ppt="File ▸ Passwords ▸ Password to open: 'sample'; save as .pptx. Done on the Mac 2026-10-13 (AppleScript "
+               "`set password`): same message as the stand-in. Not committed: PowerPoint writes the user's name into "
+               "the encrypted part and the password is public; re-save with a sample user name first.")
 def _(path):
     names = b"".join(n.encode("utf-16-le") for n in ("Root Entry", "EncryptionInfo", "EncryptedPackage"))
     path.write_bytes(CFB + b"\0" * 504 + names + b"\0" * 1024)
@@ -1606,38 +1611,27 @@ def _(path):
              "Four bullets each appear on a click, and the last click EXITS the summary: if the presenter "
              "advances early the slide moves on with content never shown; the last build hides content.",
              "Count click-triggered entrance effects per slide (playback.animated_shape_ids already finds entr/exit). "
-             "Note: 'N clicks before this slide moves on'. Exit effect on the last click group: yellow. Timing XML here "
-             "is the L010 test's entrance builder; exit uses presetClass='exit' with the same shape (approximate).",
-             real_ppt="Animations ▸ Appear on each bullet (On Click), then Disappear on the summary box as the last "
-                      "click; save on Mac and Windows.")
+             "Note: 'N clicks before this slide moves on'. Exit effect on the last click group: yellow. In this real "
+             "save, Appear is presetID 1 (entr) and Disappear is presetID 1 (exit), not the Fade (10) the old stand-in "
+             "used.",
+             saved=f"PowerPoint for Mac 16.113.4, 2026-10-13: plain text boxes from python-pptx, then AppleScript `add effect … fx animation type "
+                   "appear trigger on page click` on the 4 bullets, and the same with `exit animation` true on the "
+                   "summary box; saved by PowerPoint. Windows save still to do.")
 def _(path):
-    prs = _office_deck()
-    s = blank(prs)
-    shapes = [text(s, f"Point {i + 1}", 1, 1 + i, 6, 0.8, font="Calibri", size=28) for i in range(4)]
-    kit.entrance_on_click(s, [sh.shape_id for sh in shapes])
-    s2 = blank(prs)
-    summary = text(s2, "Summary box that disappears", 1, 1, 6, 1, font="Calibri", size=28)
-    kit.entrance_on_click(s2, [summary.shape_id], preset_class="exit")
-    return save(prs, path)
+    raise AssertionError("saved PowerPoint file; see Spec.saved")
 
 
 @new_problem("NEW-05-long-transitions-morph", "powerpoint",
-             "A 6 s 'vortex' transition and a Morph transition (p159:morph), which Office 2016/2019 can't play.",
-             "Read p:transition dur/spd and the p14/p159 extension children in mc:AlternateContent. Yellow when "
-             "duration > 2 s; yellow for Morph ('needs PowerPoint 2019/365; older versions fade'). XML here is "
-             "approximate (transitions are not timing-tree, but Morph's p159 namespace must come from a real save).",
-             real_ppt="Transitions ▸ Vortex, Duration 06.00 on slide 2; Transitions ▸ Morph on slide 3; save on Mac and Windows.")
+             "A 6 s Vortex transition and a Morph transition (p159:morph), which Office 2016/2019 can't play.",
+             "Read p:transition dur/spd, including inside mc:AlternateContent: in this real save BOTH transitions sit "
+             "in mc:Choice (Vortex as p14:vortex with p14:dur='6000', Morph as p159:morph), with a plain fade as the "
+             "mc:Fallback. A detector reading only top-level p:transition sees the fades. Yellow when duration > 2 s; "
+             "yellow for Morph ('needs PowerPoint 2019/365; older versions fade').",
+             saved=f"PowerPoint for Mac 16.113.4, 2026-10-13: three plain slides from python-pptx, then AppleScript `entry effect vortex left` with "
+                   "`transition duration` 6 on slide 2 and `entry effect morph by object` on slide 3; saved by "
+                   "PowerPoint. Windows save still to do.")
 def _(path):
-    prs = new_deck(WIDE)
-    for i in range(3):
-        text(blank(prs), f"Slide {i + 1}", 1, 1 + i, 6, 1)
-    transition(prs.slides[1], inner="<p:fade/>", spd="slow", **{"p14:dur": "6000"})
-    morph = (f'<mc:AlternateContent {NSDECL} xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main">'
-             f'<mc:Choice Requires="p159"><p:transition spd="slow" p14:dur="2000"><p159:morph option="byObject"/>'
-             f'</p:transition></mc:Choice><mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback>'
-             f'</mc:AlternateContent>')
-    prs.slides[2]._element.find(qn("p:clrMapOvr")).addnext(etree.fromstring(morph))
-    return save(prs, path)
+    raise AssertionError("saved PowerPoint file; see Spec.saved")
 
 
 @new_problem("NEW-06-google-theme-font-substitution", "google",
