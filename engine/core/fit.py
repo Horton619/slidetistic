@@ -401,8 +401,28 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
     return None
 
 
+def autofit(sv) -> bool:
+    """The box is shrinking its text to fit (PowerPoint's "Shrink text on overflow", `a:normAutofit` with a
+    scale). PowerPoint
+    redoes that shrink whenever the box is edited or, on some versions, opened, so a wrap predicted from
+    today's render isn't reliable after a width, font or spacing change (review 2026-10-13, 1.6)."""
+    tf = getattr(sv.shape, "text_frame", None) if getattr(sv.shape, "has_text_frame", False) else None
+    body = tf._txBody.find(qn("a:bodyPr")) if tf is not None else None
+    auto = body.find(qn("a:normAutofit")) if body is not None else None
+    # Only boxes PowerPoint is shrinking right now (it saved a scale): 182 suite boxes have autofit on, most
+    # of them not shrinking; refusing all of those would drop fixes David approved.
+    return auto is not None and (auto.get("fontScale") is not None or auto.get("lnSpcReduction") is not None)
+
+
 def apply(edits, sv, plan: Plan, label: str, finding=None, ctx=None):
     from . import tuning
+    from .edits import FixRefused
+    # Off by default (David 2026-10-13): on CLARB slides the skipped fixes were good, and they held after an edit in
+    # PowerPoint (which redoes the shrink). Kept as a switch in thresholds.yaml in case Windows behaves differently.
+    skip = bool(ctx and ctx.thresholds.get("fit_skip_shrinking_autofit", False))
+    if skip and autofit(sv) and (plan.font < 1 or plan.spacing < 1 or abs(plan.width - sv.bounds.width) > 1):
+        raise FixRefused("this box shrinks its text to fit (autofit), so PowerPoint would re-wrap it after a "
+                         "resize; left as it was")
     tuning.allow(edits, sv, tuning.describe_plan(edits.deck, sv, plan, finding, ctx, edits.check_id))
     if plan.font < 1 and not scale_font(edits, sv, plan.font, label):
         return False

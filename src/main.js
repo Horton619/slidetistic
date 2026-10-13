@@ -41,6 +41,7 @@ const DEFAULTS = {
   lastTab: 'review',
   tuningMode: false,           // Diagnostics: 👍/👎 on changed slides, for tuning the layout rules (David)
   feedbackFolder: '',          // '' = the shared Dropbox suite's _feedback, else userData/feedback
+  partialExport: 'off',        // Diagnostics: fit rounds export only changed slides ('off' | 'check' | 'on')
   window: { width: 1360, height: 860 },
 };
 const settingsFile = () => path.join(app.getPath('userData'), 'slidetistic-settings.json');
@@ -80,20 +81,49 @@ let running = null;
 // scan's render runs inside one check step with no events.
 const STALL_MS = { scan: 6 * 60e3, repair: 10 * 60e3, undo: 10 * 60e3 };
 
+// Stopping the engine. Mac: SIGTERM, which the engine holds until any PowerPoint export in progress ends
+// (it closes its copy first), then a hard kill after `graceMs`. Even then the export's osascript carries
+// on and closes the copy, and the next engine waits for it (render.OPEN_FILE). Windows has no SIGTERM:
+// kill() ends it at once, and the next engine closes the PowerPoint it left (OWNED_FILE).
+function stopChild(job, graceMs = 60e3) {
+  const child = job.child;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGTERM');
+  if (isMac) {
+    const hard = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, graceMs);
+    child.once('close', () => clearTimeout(hard));
+  }
+}
+
 // Jobs the user clicked (repair, undo) go ahead of queued scans, in click order, and stop a running
 // scan, which goes back to the front of the scans. Repair is only offered on a scanned deck, so it
-// never jumps its own deck's scan. A scan that is mid-render is left to finish: killing the engine
-// then would leave its hidden copy open in PowerPoint.
+// never jumps its own deck's scan. On Windows a scan that is mid-export is left to finish (a kill
+// can't wait for it); the Mac engine finishes the export itself before stopping.
 function enqueue(job) {
   const firstScan = job.kind === 'scan' ? -1 : jobs.findIndex((j) => j.kind === 'scan');
   if (firstScan < 0) jobs.push(job); else jobs.splice(firstScan, 0, job);
   send('engine:event', { jobId: job.id, deckId: job.deckId, type: 'queued', kind: job.kind });
   if (job.kind !== 'scan' && running && running.kind === 'scan' && running.child
-      && running.stage !== 'render' && !running.preempted) {
+      && (isMac || !running.rendering) && !running.preempted) {
     running.preempted = true;
-    running.child.kill();
+    stopChild(running);
   }
   pump();
+}
+
+// Quitting (or installing an update) stops the queue and the engine first, so no engine outlives the
+// app with PowerPoint half-way through an export.
+let engineStopped = false;
+function stopEngineThen(done) {
+  jobs.length = 0;
+  const job = running;
+  if (!job || !job.child || job.child.exitCode !== null || job.child.signalCode !== null) { done(); return; }
+  job.cancelled = true;
+  let finished = false;
+  const finish = () => { if (!finished) { finished = true; done(); } };
+  job.child.once('close', finish);
+  stopChild(job, 8e3);
+  setTimeout(finish, 10e3);
 }
 
 function pump() {
@@ -109,7 +139,7 @@ function pump() {
   let watchdog;
   const alive = () => {
     clearTimeout(watchdog);
-    watchdog = setTimeout(() => { stalled = true; child.kill(); }, STALL_MS[job.kind] || STALL_MS.repair);
+    watchdog = setTimeout(() => { stalled = true; stopChild(job); }, STALL_MS[job.kind] || STALL_MS.repair);
   };
   alive();
   let buf = '';
@@ -126,6 +156,7 @@ function pump() {
         const ev = JSON.parse(line);
         if (ev.type === 'error' || ev.type === 'warn') log(ev.type, job.kind, ev.message || '');
         if (ev.type === 'progress') job.stage = ev.stage;
+        if (ev.type === 'render') { job.rendering = !!ev.busy; continue; }
         send('engine:event', { jobId: job.id, deckId: job.deckId, kind: job.kind, ...ev });
       } catch (_) { /* partial or non-JSON line */ }
     }
@@ -167,7 +198,11 @@ function send(channel, payload) {
 }
 
 let jobCounter = 0;
-const reviewDir = (deckId) => path.join(app.getPath('userData'), 'reviews', deckId);
+// Deck ids come from the renderer ("d12"); anything else could point the folder (and its rmSync) elsewhere.
+const reviewDir = (deckId) => {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(deckId))) throw new Error('bad deck id');
+  return path.join(app.getPath('userData'), 'reviews', deckId);
+};
 
 function commonArgs(opts) {
   const a = ['--json', '--set', `safe_zone_pct=${settings.safeZonePct}`];
@@ -176,6 +211,7 @@ function commonArgs(opts) {
   if (opts.checks) a.push('--checks', opts.checks.join(','));
   if (opts.preset) a.push('--preset', opts.preset);
   if (settings.shapeCache === false) a.push('--shape-cache', 'off');
+  if (['check', 'on'].includes(settings.partialExport)) a.push('--partial-export', settings.partialExport);
   if (isMac && settings.hidePowerPoint === false) a.push('--powerpoint-visible');
   return a;
 }
@@ -188,17 +224,28 @@ function outputPathFor(input) {
   const folder = candidates.find((dir) => {
     try { fs.accessSync(dir, fs.constants.W_OK); return true; } catch (_) { return false; }
   });
-  // Never overwrite: "Deck - mended.pptx", then "Deck - mended (2).pptx", …
+  // Never overwrite: "Deck - mended.pptx", then "Deck - mended (2).pptx", … Paths already promised to a
+  // queued repair count as taken: two "Deck.pptx" from different folders, repaired into one output folder,
+  // would otherwise both be given the same name before either file exists.
+  const taken = (p) => fs.existsSync(p) || reservedOutputs.has(p.toLowerCase());
   let out = path.join(folder, base + '.pptx');
-  for (let n = 2; fs.existsSync(out); n++) out = path.join(folder, `${base} (${n}).pptx`);
+  for (let n = 2; taken(out); n++) out = path.join(folder, `${base} (${n}).pptx`);
+  reservedOutputs.add(out.toLowerCase());
   return out;
 }
+const reservedOutputs = new Set();
 
 // ---------------------------------------------------------------------------------------------
 // IPC
 
 ipcMain.handle('settings:getAll', () => settings);
+// The renderer may only change known settings, each keeping its type (review 2026-10-13, 1.11).
 ipcMain.handle('settings:set', (_e, key, value) => {
+  const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
+  if (!Object.prototype.hasOwnProperty.call(DEFAULTS, key) || key === 'window' || kind(value) !== kind(DEFAULTS[key])) {
+    log('warn', 'settings', 'refused', String(key));
+    return settings;
+  }
   settings[key] = value;
   saveSettings();
   if (key === 'watchFolder') startWatching();
@@ -221,6 +268,16 @@ ipcMain.handle('dialog:saveFile', async (_e, defaultPath, filters) => {
   return r.canceled ? null : r.filePath;
 });
 
+// Files the renderer may act on (review 2026-10-13, 1.11): only paths the main process itself handed it, from
+// a pick, a drop, the watch folder or a repair's output. A compromised page can't open or run anything else.
+const knownPaths = new Set();
+const remember = (p) => { knownPaths.add(path.resolve(p)); return p; };
+function known(p) {
+  if (typeof p === 'string' && knownPaths.has(path.resolve(p))) return true;
+  log('warn', 'ipc', 'refused an unknown path', String(p).slice(0, 200));
+  return false;
+}
+
 // Dropped/picked paths → decks. Folders are walked; a folder NAMED *.pptx (slide-image exports, seen in
 // Dropbox) is reported as such rather than walked.
 ipcMain.handle('files:expand', (_e, paths) => {
@@ -237,7 +294,7 @@ ipcMain.handle('files:expand', (_e, paths) => {
       return;
     }
     if (['.pptx', '.ppt', '.key', '.pptm'].includes(ext) && !path.basename(p).includes(settings.suffix)) {
-      out.push({ path: p, name: path.basename(p), size: st.isDirectory() ? 0 : st.size, isDir: st.isDirectory(), ext });
+      out.push({ path: remember(p), name: path.basename(p), size: st.isDirectory() ? 0 : st.size, isDir: st.isDirectory(), ext });
     }
   };
   for (const p of paths) visit(p, 0);
@@ -253,6 +310,7 @@ ipcMain.handle('engine:listChecks', () => new Promise((resolve) => {
 }));
 
 ipcMain.handle('engine:scan', (_e, deckId, file, opts = {}) => {
+  if (!known(file)) return { error: 'unknown file' };
   const dir = reviewDir(deckId);
   fs.rmSync(dir, { recursive: true, force: true });
   const id = `j${++jobCounter}`;
@@ -264,9 +322,10 @@ ipcMain.handle('engine:scan', (_e, deckId, file, opts = {}) => {
 });
 
 ipcMain.handle('engine:repair', (_e, deckId, file, opts = {}) => {
+  if (!known(file)) return { error: 'unknown file' };
   const dir = reviewDir(deckId);
   fs.rmSync(dir, { recursive: true, force: true });
-  const out = outputPathFor(file);
+  const out = remember(outputPathFor(file));
   const args = ['repair', file, ...commonArgs(opts), '--out', out, '--review-dir', dir];
   if (opts.fixes) args.push('--fix', opts.fixes.join(','));
   if (settings.quickRepair) args.push('--no-layout', '--no-visual');
@@ -277,6 +336,7 @@ ipcMain.handle('engine:repair', (_e, deckId, file, opts = {}) => {
 });
 
 ipcMain.handle('engine:undoSlide', (_e, deckId, mended, slide) => {
+  if (!known(mended)) return { error: 'unknown file' };
   const dir = reviewDir(deckId);
   const id = `j${++jobCounter}`;
   enqueue({ id, deckId, kind: 'undo', args: ['undo-slide', mended, '--prefit', path.join(dir, 'prefit.pptx'),
@@ -286,7 +346,7 @@ ipcMain.handle('engine:undoSlide', (_e, deckId, mended, slide) => {
 
 ipcMain.handle('engine:cancel', (_e, deckId) => {
   for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].deckId === deckId) jobs.splice(i, 1);
-  if (running && running.deckId === deckId && running.child) { running.cancelled = true; running.child.kill(); }
+  if (running && running.deckId === deckId && running.child) { running.cancelled = true; stopChild(running); }
 });
 
 // --- temporary files: review bundles (slide images + a pre-fit copy of each repaired deck) and the
@@ -424,13 +484,85 @@ function engineJson(cliArgs, timeout) {
   });
 }
 ipcMain.handle('fonts:get', async (_e, file, families) => {
+  if (!known(file) || !Array.isArray(families)) return { error: 'unknown file', events: [] };
   const r = await engineJson(['fonts', 'get', file, '--install', '--json', ...families.flatMap((f) => ['--family', f])], 5 * 60e3);
   log('info', 'fonts get', families.join(', '), r.events.filter((e) => e.type === 'font').map((e) => e.message).join(' | '));
   return r;
 });
+const familyArgs = (families) => families.filter((f) => typeof f === 'string' && f && !f.startsWith('-'))
+  .slice(0, 50).flatMap((f) => ['--family', f]);
+// Which missing fonts Adobe Fonts has (cached 30 days by the engine). Offline: families are left out.
+ipcMain.handle('fonts:adobe', async (_e, families) => {
+  if (!Array.isArray(families) || !families.length) return {};
+  const r = await engineJson(['fonts', 'adobe', '--json', ...familyArgs(families)], 60e3);
+  return Object.fromEntries(r.events.filter((e) => e.type === 'adobe').map((e) => [e.family, { info: e.info, search: e.search }]));
+});
+const fontsHere = async (families) => {
+  const r = await engineJson(['fonts', 'here', '--json', ...familyArgs(families)], 60e3);
+  return Object.fromEntries(r.events.filter((e) => e.type === 'here').map((e) => [e.family, e.here]));
+};
+
+// Guided Adobe Fonts activation (David 2026-10-13). A window on each font's Adobe page; David signs in once
+// (kept in its own session) and clicks Add himself: Adobe's terms rule out clicking it for him. The app
+// watches Creative Cloud's font folder, moves to the next font when this one arrives, and closes at the end.
+let adobe = null;
+const CC_FONTS = isMac ? path.join(os.homedir(), 'Library/Application Support/Adobe/CoreSync/plugins/livetype')
+  : path.join(process.env.APPDATA || os.homedir(), 'Adobe/CoreSync/plugins/livetype');
+ipcMain.handle('fonts:activate', (_e, deckId, items) => {
+  const list = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.family === 'string'
+    && typeof i.link === 'string' && /^https:\/\/fonts\.adobe\.com\//.test(i.link)).slice(0, 20);
+  if (!list.length) return { error: 'nothing to activate' };
+  if (adobe) { adobe.win.focus(); return { busy: true }; }
+  const win = new BrowserWindow({
+    width: 1180, height: 840, parent: mainWindow, title: 'Adobe Fonts',
+    webPreferences: { partition: 'persist:adobe-fonts', sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
+  // Sign-in hops between Adobe, Google and Apple pages: any https page may load here; nothing else.
+  win.webContents.on('will-navigate', (e, url) => { if (!/^https:\/\//.test(url)) e.preventDefault(); });
+  win.webContents.setWindowOpenHandler(({ url }) => (/^https:\/\//.test(url) ? { action: 'allow' } : { action: 'deny' }));
+  adobe = { win, deckId, list, i: 0, done: [], timer: null, watcher: null, checking: false };
+  const status = () => send('fonts:activation', {
+    deckId, current: list[adobe.i]?.family || null, index: adobe.i, total: list.length, done: adobe.done });
+  const show = () => {
+    const it = list[adobe.i];
+    win.setTitle(`Adobe Fonts: ${it.family} (${adobe.i + 1} of ${list.length}) · click "Add" on the page`);
+    win.loadURL(it.link);
+    status();
+  };
+  const check = async () => {
+    if (!adobe || adobe.checking) return;
+    adobe.checking = true;
+    const it = list[adobe.i];
+    const here = await fontsHere([it.family]);
+    if (!adobe) return;
+    adobe.checking = false;
+    if (!here[it.family]) return;
+    adobe.done.push(it.family);
+    log('info', 'adobe fonts', 'activated', it.family);
+    adobe.i += 1;
+    if (adobe.i >= list.length) { win.close(); return; }
+    show();
+  };
+  let debounce = null;
+  try {
+    adobe.watcher = fs.watch(CC_FONTS, { recursive: true }, () => { clearTimeout(debounce); debounce = setTimeout(check, 1500); });
+  } catch (err) { log('warn', 'adobe fonts', 'watch failed', err.message); }
+  adobe.timer = setInterval(check, 8000);       // the folder watch can miss events; check anyway
+  win.on('closed', () => {
+    const done = adobe ? adobe.done : [];
+    clearInterval(adobe?.timer);
+    adobe?.watcher?.close();
+    adobe = null;
+    send('fonts:activation', { deckId, finished: true, done, total: list.length });
+  });
+  show();
+  return { ok: true };
+});
+
 // Testing aid (David 2026-10-12): the deck's fonts in '<deck> - fonts' next to it, named by what they are;
 // installed / Creative Cloud fonts copied, free ones downloaded. Then show the folder in Finder/Explorer.
 ipcMain.handle('fonts:collect', async (_e, file) => {
+  if (!known(file)) return { error: 'unknown file', events: [], folder: null };
   const r = await engineJson(['fonts', 'collect', file, '--json'], 5 * 60e3);
   const done = r.events.find((e) => e.type === 'done');
   if (done?.folder) shell.showItemInFolder(path.join(done.folder, 'FONTS.txt'));
@@ -456,6 +588,7 @@ ipcMain.handle('report:export', async (_e, deckId, deckName) => {
 });
 
 ipcMain.handle('media:export', async (_e, file, kind) => {
+  if (!known(file)) return { error: 'unknown file' };
   const ext = kind === 'xlsx' ? 'xlsx' : 'csv';
   const dest = await dialog.showSaveDialog(mainWindow, {
     defaultPath: path.join(app.getPath('downloads'), `${path.basename(file, path.extname(file))} - media.${ext}`),
@@ -468,12 +601,15 @@ ipcMain.handle('media:export', async (_e, file, kind) => {
   });
 });
 
-ipcMain.handle('shell:showInFolder', (_e, p) => shell.showItemInFolder(p));
-ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+ipcMain.handle('shell:showInFolder', (_e, p) => { if (known(p)) shell.showItemInFolder(p); });
+ipcMain.handle('shell:openPath', (_e, p) => (known(p) ? shell.openPath(p) : null));
 ipcMain.handle('shell:openExternal', (_e, url) => {
-  // Only web links from findings (YouTube, Drive…) and the VEP footer; never file: or custom schemes.
-  if (/^https?:\/\//i.test(url)) return shell.openExternal(url);
-  return null;
+  // Only web links from findings (YouTube, Drive…) and the VEP footer; never file: or custom schemes,
+  // and never a link with a login in it ("https://youtube.com@evil.example/" goes to evil.example).
+  let u;
+  try { u = new URL(String(url)); } catch (_) { return null; }
+  if (!['http:', 'https:'].includes(u.protocol) || !u.hostname || u.username || u.password) return null;
+  return shell.openExternal(u.href);
 });
 
 // Open a deck in PowerPoint at a given slide.
@@ -491,6 +627,7 @@ const WIN_OPEN_AT_SLIDE = [
 ].join('; ');
 
 ipcMain.handle('ppt:openAtSlide', (_e, file, slide) => new Promise((resolve) => {
+  if (!known(file)) { resolve({ ok: false, error: 'unknown file' }); return; }
   if (!isMac) {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_OPEN_AT_SLIDE],
       { env: { ...process.env, ST_FILE: path.resolve(file), ST_SLIDE: String(Number(slide) || 1) }, timeout: 60000 },
@@ -501,16 +638,15 @@ ipcMain.handle('ppt:openAtSlide', (_e, file, slide) => new Promise((resolve) => 
       });
     return;
   }
-  const script = `
-    tell application "Microsoft PowerPoint"
-      activate
-      open POSIX file ${JSON.stringify(file)}
-      set p to active presentation
-      if (full name of p) is ${JSON.stringify(file)} then
-        go to slide (view of document window 1) number ${Number(slide)}
-      end if
-    end tell`;
-  execFile('osascript', ['-e', script], (err) => resolve(err ? { ok: false, error: err.message } : { ok: true }));
+  // Through the engine: it waits for any hidden export to finish first (the render lock), so the
+  // deck David opens never becomes the "active presentation" an export is about to save and close.
+  const { cmd, args, cwd, env } = engineCommand(['open-at-slide', file, '--slide', String(Number(slide) || 1), '--json']);
+  execFile(cmd, args, { cwd, env, timeout: 150e3 }, (err, stdout) => {
+    let r = null;
+    try { r = JSON.parse(String(stdout).trim().split('\n').pop()); } catch (_) { /* no JSON: engine failed */ }
+    if (r && r.ok) resolve({ ok: true });
+    else resolve({ ok: false, error: (r && r.error) || (err && err.message) || 'PowerPoint couldn\'t open it.' });
+  });
 }));
 
 // Windows: the same registry key the engine's renderer checks (PowerPoint.Application registered for COM).
@@ -560,7 +696,7 @@ function startWatching() {
         const st = fs.statSync(full);
         if (watchSeen.get(full) === st.mtimeMs) return;
         watchSeen.set(full, st.mtimeMs);
-        send('watch:found', [{ path: full, name: path.basename(full), size: st.size, isDir: false, ext: '.pptx' }]);
+        send('watch:found', [{ path: remember(full), name: path.basename(full), size: st.size, isDir: false, ext: '.pptx' }]);
       } catch (_) { /* deleted again */ }
     }, 2500));
   });
@@ -589,7 +725,8 @@ function setupUpdater() {
     // (David 2026-10-12: 0.4.0 ran from Downloads, "translocated"; Squirrel refused the swap).
     const where = placementProblem();
     if (where) { status({ type: 'move-needed', where }); return; }
-    autoUpdater.quitAndInstall();
+    engineStopped = true;
+    stopEngineThen(() => autoUpdater.quitAndInstall());
   });
   ipcMain.handle('app:moveToApplications', () => {
     try {
@@ -618,11 +755,16 @@ function placementProblem() {
 function createWindow() {
   const { width, height } = settings.window || DEFAULTS.window;
   mainWindow = new BrowserWindow({
-    width, height, minWidth: 980, minHeight: 640,
+    width, height, minWidth: 760, minHeight: 560,
     backgroundColor: '#070910',
     title: 'SlideTistic',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
+                      sandbox: true },
   });
+  // The window only ever shows the app's own page: links never navigate it and never open new windows
+  // (web links go through shell:openExternal). A dropped file must not replace the app with that file.
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.on('close', () => {
     const [w, h] = mainWindow.getSize();
@@ -641,3 +783,9 @@ app.whenReady().then(() => {
   setTimeout(refreshFontCatalog, 20e3);      // weekly free-font list; never during a scan's first moments
 });
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', (e) => {
+  if (engineStopped || !running) return;
+  e.preventDefault();
+  engineStopped = true;
+  stopEngineThen(() => app.quit());
+});

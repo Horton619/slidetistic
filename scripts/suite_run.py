@@ -212,7 +212,11 @@ def run_deck(deck: Path, suite: Path, run_dir: Path, layout: bool, images: bool,
         if (tmp / "once.pptx").exists():
             again = run_cli(["repair", str(tmp / "once.pptx"), "--json", "--out", str(tmp / "twice.pptx"),
                              "--review-dir", str(tmp / "review2"), "--no-visual", *flags], timeout)
-            rec["second_repair_changes"] = sum(1 for e in again["events"] if e.get("type") == "change")
+            second = [e for e in again["events"] if e.get("type") == "change"]
+            rec["second_repair_changes"] = len(second)
+            # Which ones (review 2026-10-13, 3.4): a repair should settle in one go, so these are the cases to fix.
+            rec["second_repair_list"] = [{k: e.get(k) for k in ("check_id", "slide", "shape_name", "prop", "before", "after")}
+                                         for e in second][:50]
             rec["second_repair_exit"] = again["exit"]
         media = run_cli(["media", str(deck), "--json"], min(timeout, 600))
         inv = next((e for e in media["events"] if e.get("type") == "media"), {})

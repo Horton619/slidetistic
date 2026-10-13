@@ -28,9 +28,19 @@ def _context() -> ssl.SSLContext:
 _CTX = None
 
 
-def get(url: str, *, user_agent: str = USER_AGENT, timeout: float = 30) -> bytes:
+MAX_BYTES = 50 * 1024 * 1024        # a font file or font list; far more means something's wrong
+
+
+class TooLarge(Exception):
+    pass
+
+
+def get(url: str, *, user_agent: str = USER_AGENT, timeout: float = 30, max_bytes: int = MAX_BYTES) -> bytes:
     global _CTX
     _CTX = _CTX or _context()
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
     with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
-        return r.read()
+        data = r.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise TooLarge(f"{url} is over {max_bytes // (1024 * 1024)} MB; not downloaded")
+    return data

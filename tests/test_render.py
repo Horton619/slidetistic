@@ -206,3 +206,25 @@ def test_rename_waits_out_a_brief_lock(tmp_path, monkeypatch):
     (tmp_path / "a.partial").write_text("x")
     deck_mod.replace_retrying(tmp_path / "a.partial", tmp_path / "a.json", wait=5)
     assert (tmp_path / "a.json").read_text() == "x" and len(calls) == 3
+
+
+def test_any_fit_pass_failure_undoes_layout_and_reports_it(tmp_path, monkeypatch):
+    """Review 2026-10-13 item 1.4: a bug inside the fit pass (not just PowerPoint failing) must not crash
+    the repair. Layout changes go back, other fixes stand, and it shows as a tool_error."""
+    from engine.core import registry, runner
+    from engine.core.edits import EditSession
+    from engine.core.deck import Deck
+    from engine.core.layout import pdf as pdf_mod
+
+    def broken(*a, **k):
+        raise ValueError("unexpected PDF")
+    monkeypatch.setattr(runner, "_layout_for", lambda deck, config: object())
+    monkeypatch.setattr(pdf_mod, "PdfLayout", broken)
+    deck = Deck(make_deck(tmp_path, text_box("Title")))
+    checks = registry.discover()
+    fitters = [c for c in checks if c.id.startswith("L")]
+    events, errors = [], []
+    runner._fit_pass(deck, fitters, EditSession(deck), runner.make_context(runner.RunConfig(layout=True)),
+                     runner.RunConfig(layout=True), {}, errors, events.append)
+    assert [e.check_id for e in errors] == ["L000"] and errors[0].status.value == "tool_error"
+    assert any("Layout fixes were undone" in e.get("message", "") for e in events)

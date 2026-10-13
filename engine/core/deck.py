@@ -62,14 +62,60 @@ def replace_retrying(src, dst, wait: float = 10.0) -> None:
             delay = min(delay * 2, 1.0)
 
 
+_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_P_CONTROLS = "{http://schemas.openxmlformats.org/presentationml/2006/main}controls"
+_ACTIVE_TYPES = ("/vbaProject", "/control", "/activeXControlBinary")
+LINK_REMOVED = "slidetistic-link-removed"
+
+
+def render_safe(member: str, data: bytes) -> bytes:
+    """A render copy opens in PowerPoint with nothing that reaches out or runs (review 2026-10-13, 1.3/1.5):
+    - links PowerPoint would load on open (linked pictures, OLE, media, templates; not hyperlinks, which
+      only open on a click) point at a local name that doesn't exist: no network or file-share lookup,
+      which on Windows could hand a remote server the user's login hash;
+    - macros and ActiveX controls are unhooked (the controls' own pictures go too).
+    Text layout doesn't depend on any of these; a linked picture draws as PowerPoint's "can't show" box,
+    as it would on an offline show machine."""
+    if member.endswith(".rels"):
+        if b"External" not in data and not any(t.encode() in data for t in _ACTIVE_TYPES):
+            return data
+        root = etree.fromstring(data)
+        changed = False
+        for rel in list(root):
+            kind = rel.get("Type", "")
+            if kind.endswith(_ACTIVE_TYPES):
+                root.remove(rel)
+                changed = True
+            elif rel.get("TargetMode") == "External" and not kind.endswith("/hyperlink"):
+                rel.set("Target", LINK_REMOVED)
+                changed = True
+        return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True) if changed else data
+    if member.startswith("ppt/slides/slide") and member.endswith(".xml") and b"controls" in data:
+        root = etree.fromstring(data)
+        for c in list(root.iter(_P_CONTROLS)):
+            parent = c.getparent()
+            if parent is None:
+                continue
+            if parent.tag in (f"{{{_MC_NS}}}Choice", f"{{{_MC_NS}}}Fallback"):     # 2010+ files wrap them
+                alt = parent.getparent()
+                if alt is not None and alt.getparent() is not None:
+                    alt.getparent().remove(alt)
+            else:
+                parent.remove(c)
+        return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return data
+
+
 def write_render_copy(src: Path, dst: Path) -> None:
-    """Copy a deck for PowerPoint to draw: media swapped for stand-ins, compressed media stored."""
+    """Copy a deck for PowerPoint to draw: media swapped for stand-ins, compressed media stored, links
+    and active content neutralised (render_safe)."""
     import zipfile
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", strict_timestamps=False) as zout:
         for info in zin.infolist():
             stub = stub_for(info.filename)
-            zout.writestr(info.filename, stub if stub is not None else zin.read(info),
-                          compress_type=compression_for(info.filename))
+            data = stub if stub is not None else render_safe(info.filename, zin.read(info))
+            zout.writestr(info.filename, data, compress_type=compression_for(info.filename))
 
 
 @dataclass

@@ -152,36 +152,87 @@ def assign(lines: list[Line], shapes: list[tuple]) -> dict[int, ShapeText]:
     return out
 
 
+def _same_lines(a: list, b: list, tol: float = 6350) -> bool:
+    """Two renders of one slide agree: the same words on the same lines, within half a point."""
+    return len(a) == len(b) and all(
+        la.words == lb.words and all(abs(x - y) <= tol for x, y in ((la.left, lb.left), (la.top, lb.top),
+                                                                    (la.right, lb.right), (la.bottom, lb.bottom)))
+        for la, lb in zip(a, b))
+
+
 class PdfLayout:
     """LayoutProvider (SPEC §6) backed by PowerPoint's PDF. Renders lazily, once per deck file."""
     name = "PowerPoint (PDF)"
     confidence = "high"
 
-    def __init__(self, deck, renderer, path=None):
-        """`path`: the file to render when it isn't deck.path (the working copy during repair)."""
+    def __init__(self, deck, renderer, path=None, only=None, base=None, check=False):
+        """`path`: the file to render when it isn't deck.path (the working copy during repair).
+        `only` + `base` (changed-slide export, review 2026-10-13 3.10): PowerPoint draws just the slides in `only`;
+        every other slide is unchanged since `base` was drawn and keeps base's render. `check`: draw the whole
+        deck too and use that, recording in `partial_mismatch` any changed slide whose partial render differs."""
         self.deck, self.renderer, self.path = deck, renderer, path
+        self.only, self.base, self.check = only, base, check
         self._pages: dict[int, list[Line]] | None = None
         self._by_slide: dict[int, dict[int, ShapeText]] = {}
         self._pdf = None
         self._page_of: dict[int, int] = {}
+        self._src: dict[int, tuple] = {}          # slide → (layout that drew it, pdf, page)
         self._gray: dict[int, object] = {}
+        self.export_s: float | None = None
+        self.partial_mismatch: list[int] | None = None
+
+    def _pdf_pages(self, path, label):
+        import time
+        t0 = time.monotonic()
+        pdf = self.renderer.to_pdf(path, label)
+        self.export_s = (self.export_s or 0) + time.monotonic() - t0
+        out = subprocess.run([tools.find("pdftotext") or "pdftotext", "-bbox-layout", str(pdf), "-"],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                             check=True).stdout
+        return pdf, parse_bbox_html(out)
 
     def _load(self):
         if self._pages is not None:
             return
         from ..content import is_hidden
-        pdf = self.renderer.to_pdf(self.path or self.deck.path, "layout")
-        out = subprocess.run([tools.find("pdftotext") or "pdftotext", "-bbox-layout", str(pdf), "-"],
-                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
-                             check=True).stdout
-        pages = parse_bbox_html(out)
+        visible = [n for n, slide in enumerate(self.deck.slides, 1) if not is_hidden(slide)]
+        if self.only is not None and self.base is not None:
+            partial = self._load_partial(visible)
+            if not self.check:
+                return
+            self._pages, self._src, self._page_of = None, {}, {}
+        pdf, pages = self._pdf_pages(self.path or self.deck.path, "layout")
         self._pdf = pdf
-        self._pages, page = {}, 0
-        for n, slide in enumerate(self.deck.slides, 1):
-            if not is_hidden(slide):
-                page += 1
-                self._pages[n] = pages.get(page, [])
-                self._page_of[n] = page
+        self._pages = {}
+        for page, n in enumerate(visible, 1):
+            self._pages[n] = pages.get(page, [])
+            self._page_of[n] = page
+            self._src[n] = (self, pdf, page)
+        if self.only is not None and self.base is not None:
+            self.partial_mismatch = [n for n in sorted(partial) if not _same_lines(partial[n], self._pages[n])]
+
+    def _load_partial(self, visible: list[int]) -> dict[int, list]:
+        import tempfile
+        from ..partial import write_subset
+        self.base._load()
+        changed = [n for n in visible if n in self.only]
+        self._pages = {}
+        for n in visible:
+            if n not in self.only:
+                self._pages[n] = self.base._pages.get(n, [])
+                self._src[n] = self.base._src.get(n)
+        drawn = {}
+        if changed:
+            src = Path(self.path or self.deck.path)
+            with tempfile.TemporaryDirectory() as tmp:
+                sub = Path(tmp) / f"{src.stem}-changed.pptx"
+                kept = write_subset(src, sub, set(changed))
+                pdf, pages = self._pdf_pages(sub, "changed")
+            for page, n in enumerate(kept, 1):
+                drawn[n] = self._pages[n] = pages.get(page, [])
+                self._src[n] = (self, pdf, page)
+            self._pdf = pdf
+        return drawn
 
     def slide(self, slide_number: int) -> dict[int, ShapeText]:
         """{shape id: ShapeText} for every text-bearing shape on the slide."""
@@ -207,13 +258,15 @@ class PdfLayout:
         """The slide as PowerPoint drew it, greyscale (PIL), ~120 px per inch. None without a render."""
         if slide_number not in self._gray:
             self._load()
-            page = self._page_of.get(slide_number)
+            owner, pdf, page = self._src.get(slide_number) or (None, None, None)
+            if owner is not None and owner is not self:
+                return owner.page_gray(slide_number)       # unchanged slide: the earlier render's picture
             img = None
-            if page and self._pdf is not None and hasattr(self.renderer, "page_image"):
+            if page and pdf is not None and hasattr(self.renderer, "page_image"):
                 import io
                 from PIL import Image
                 width = int(self.deck.slide_width / 914400 * 120)
-                img = Image.open(io.BytesIO(self.renderer.page_image(self._pdf, page, width=width))).convert("L")
+                img = Image.open(io.BytesIO(self.renderer.page_image(pdf, page, width=width))).convert("L")
             self._gray[slide_number] = img
         return self._gray[slide_number]
 

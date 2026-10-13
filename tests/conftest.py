@@ -37,3 +37,11 @@ def _private_font_folders(tmp_path_factory, monkeypatch):
     fonts_catalog._load.cache_clear()
     yield
     fonts_catalog._load.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_render_cache(tmp_path_factory, monkeypatch):
+    """Tests never reuse or fill this machine's render cache (render_cache); test_render_cache turns it on."""
+    from engine import render_cache
+    monkeypatch.setattr(render_cache, "MODE", "off")
+    monkeypatch.setenv("SLIDETISTIC_RENDER_CACHE_DIR", str(tmp_path_factory.mktemp("renders")))

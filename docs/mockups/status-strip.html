@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Action banners mockup</title>
+<style>
+:root {
+  --bg: #070910; --surface: #0E1420; --surface-2: #141B2D; --border: #1E2840;
+  --accent: #9B8CFF; --accent-ink: #120B33; --text: #DDE2F0; --dim: #8A9BBF; --muted: #6B7A9C;
+  --green: #34D399; --amber: #FFB547; --red: #FF5A5F; --blue: #5B9BFF;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: #1b1f2b; color: var(--text); font: 13px/1.45 var(--font); }
+.switch { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 14px; }
+.switch button { background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 6px 16px; font: inherit; cursor: pointer; }
+.switch button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.switch .cap { color: var(--dim); font-size: 12px; margin-left: 10px; }
+.win { width: 1280px; height: 760px; margin: 0 auto 24px; background: var(--bg); border: 1px solid #2a3248; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+.fold { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed rgba(255,90,95,.6); }
+.fold span { position: absolute; right: 8px; top: -18px; color: var(--red); font-size: 11px; }
+.top { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.logo { font-weight: 700; letter-spacing: .02em; } .logo b { color: var(--accent); }
+.tag { color: var(--dim); font-size: 12px; } .grow { flex: 1; }
+.btn { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--text); font: inherit; white-space: nowrap; cursor: pointer; }
+.btn.p { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.sm { padding: 3px 9px; font-size: 12px; }
+.layout { flex: 1; display: grid; grid-template-columns: 250px minmax(0,1fr); min-height: 0; }
+.side { background: #0B1019; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.label { color: var(--dim); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+.card.sel { border-color: var(--accent); }
+.nm { font-weight: 600; } .sub { color: var(--muted); font-size: 11px; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.g { color: var(--green); } .y { color: var(--amber); } .r { color: var(--red); } .b { color: var(--blue); }
+.main { padding: 16px 20px; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+.title { display: flex; align-items: center; gap: 10px; }
+.title h1 { font-size: 20px; margin: 0; }
+.saved { color: var(--dim); font-size: 12px; } .saved a { color: var(--accent); }
+.banner { display: flex; gap: 12px; align-items: flex-start; border: 1px solid; border-radius: 8px; padding: 10px 12px; }
+.banner b { display: block; }
+.banner.v { background: rgba(155,140,255,.10); border-color: var(--accent); } .banner.v b { color: var(--accent); }
+.banner.r { background: rgba(255,90,95,.12); border-color: var(--red); } .banner.r b, .banner.r .ic { color: var(--red); }
+.banner.y { background: rgba(255,181,71,.10); border-color: var(--amber); } .banner.y b, .banner.y .ic { color: var(--amber); }
+.banner.bl { background: rgba(91,155,255,.10); border-color: var(--blue); } .banner.bl b { color: var(--blue); }
+.banner .ic { font-size: 20px; width: 26px; text-align: center; }
+.banner .body { flex: 1; } .issue { font-weight: 600; } .issue.r { color: var(--red); } .issue.y { color: var(--amber); }
+.inv { color: var(--dim); font-size: 12px; }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); }
+.tabs span { padding: 6px 0; color: var(--dim); } .tabs span.on { color: var(--text); border-bottom: 2px solid var(--accent); }
+.strip-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; font-size: 12px; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; font-size: 12px; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pill.r { border-color: rgba(255,90,95,.7); } .pill.r .dot { background: var(--red); }
+.pill.y { border-color: rgba(255,181,71,.7); } .pill.y .dot { background: var(--amber); }
+.pill.o { border-color: rgba(91,155,255,.55); } .pill.o .dot { background: var(--blue); }
+.pill.q { color: var(--dim); } .pill.q .dot { background: var(--muted); }
+.pill.open { background: var(--surface-2); }
+.pill .chev { color: var(--dim); font-size: 10px; }
+.detail { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start; }
+.detail .body { flex: 1; } .detail b { display: block; margin-bottom: 2px; }
+.strip-side { color: var(--dim); font-size: 12px; margin-left: auto; } .strip-side a { color: var(--accent); }
+.broken { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--red); border-radius: 8px; background: rgba(255,90,95,.08); font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; font-weight: 400; margin-left: auto; }
+.seg span { padding: 4px 10px; color: var(--dim); font-size: 12px; } .seg span + span { border-left: 1px solid var(--border); } .seg span.on { background: var(--surface-2); color: var(--text); }
+.tier { color: var(--red); font-weight: 600; margin: 4px 0 0; }
+.slide { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--red); border-radius: 10px; padding: 10px 12px; }
+.slide-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sev { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; color: var(--red); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.thumb { aspect-ratio: 16/9; background: #e9ecf3; border-radius: 4px; position: relative; overflow: hidden; }
+.thumb .t { position: absolute; left: 6%; top: 8%; width: 60%; height: 9%; background: #2c3550; border-radius: 2px; }
+.thumb .l { position: absolute; left: 6%; height: 4%; background: #9aa4bd; border-radius: 2px; }
+.thumb .x { position: absolute; border: 3px solid var(--red); }
+.cap { color: var(--dim); font-size: 11px; margin-bottom: 3px; }
+.legend { color: var(--dim); font-size: 11px; display: flex; gap: 14px; }
+.abn { display: flex; align-items: center; gap: 10px; border: 1px solid; border-radius: 8px; padding: 6px 10px; transition: opacity .4s; }
+.abn .ic { width: 22px; text-align: center; font-size: 15px; } .abn .msg { flex: 1; } .abn .msg b { font-weight: 600; }
+.abn.r { background: rgba(255,90,95,.10); border-color: rgba(255,90,95,.7); } .abn.r .ic { color: var(--red); }
+.abn.y { background: rgba(255,181,71,.08); border-color: rgba(255,181,71,.7); } .abn.y .ic { color: var(--amber); }
+.abn.n { background: var(--surface); border-color: var(--border); color: var(--dim); } .abn.n .ic { color: var(--blue); }
+.abn.small { padding: 2px 10px; font-size: 12px; cursor: help; } .abn.small .ic { font-size: 12px; }
+.abn.done { background: rgba(52,211,153,.10); border-color: rgba(52,211,153,.7); } .abn.done .ic { color: var(--green); }
+.icon { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 14px; }
+kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; color: var(--dim); }
+.src { position: relative; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px dashed var(--accent); color: var(--accent); cursor: help; }
+.src .tip { display: none; position: absolute; top: 22px; left: 0; width: 340px; z-index: 5; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; color: var(--text); font-size: 12px; }
+.src:hover .tip { display: block; }
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.modal { width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.modal .row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); } .modal .row .inv { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="switch">
+  <button id="b-before" class="on" onclick="show('before')">Before (today)</button>
+  <button id="b-after" onclick="show('after')">After (action banners)</button>
+  <span class="cap">1280 × 760 window · in After: click a banner button to resolve it (hover a green one for details), hover the Canva export chip, click Repair again</span>
+</div>
+
+<div class="win" id="before">
+  <div class="top"><span class="logo">Slide<b>Tistic</b></span><span class="tag">PowerPoint is my special interest.</span><span class="grow"></span><button class="btn">SlideFluid ↗</button><button class="btn">Settings</button></div>
+  <div class="layout">
+    <div class="side"><span class="label">Queue</span>
+      <div class="card sel"><div class="nm">Annual Meeting Day 1</div><div class="sub">canva · repaired</div><div class="chips"><span class="chip g">✓ 3</span><span class="chip y">! 21</span><span class="chip r">✕ 7</span><span class="chip b">♪ 1</span><span class="chip r">Aa 9</span></div></div>
+    </div>
+    <div class="main">
+      <div class="title"><h1>Annual Meeting Day 1</h1><span class="chip g">✓ 3 fixed</span><span class="chip y">! 21 to look at</span><span class="chip r">✕ 7 still broken</span><span class="grow"></span><button class="btn">Show in Finder</button><button class="btn">Export report</button><button class="btn p">Repair again</button></div>
+      <div class="banner v"><span class="ic">✦</span><div class="body"><b>CANVA DETECTED! Buckle up, we got a gRaPhIc dEsIgNeR.</b><span class="inv">Looks like a Canva export (fonts embedded per weight, Canva layout names).</span></div></div>
+      <div class="banner r"><span class="ic">✕</span><div class="body"><b>Text runs off the slide on slides 17, 24. Fix these before the show.</b></div></div>
+      <div class="banner y"><span class="ic">♪</span><div class="body"><b>Media needs prep before the show</b><div class="issue y">1 video link in the slides or notes to download (slide 41)</div><div class="inv">2 videos, all embedded (slides 12, 30). Check they play on the show machine.</div></div><button class="btn">Media tab</button></div>
+      <div class="banner r"><span class="ic">Aa</span><div class="body"><b>Fonts missing on show machines</b><div class="issue r">8 missing: Lato, Museo Sans 500, Roboto Light, Source Sans 3 and 4 more (on 52 slides). Free to install: Space Grotesk</div><div class="issue y">1 to check: Aptos (Microsoft 365 cloud font: older Office won't have it)</div><div class="inv">4 more fonts are named in the deck but not used by any text.</div></div><button class="btn p">Get 1 free font</button><button class="btn">Fonts tab</button></div>
+      <div class="banner bl"><div class="body"><b>This deck could be much smaller</b><span class="inv">Compressing 72 pictures for a 1080p screen would shrink this deck from 63 MB to about 21 MB (−67%).</span></div><label class="inv"><input type="checkbox"> Compress pictures on repair</label></div>
+      <div class="saved">Saved <b>Annual Meeting Day 1 - mended.pptx</b> · <a>Show in Finder</a> · <a>Open</a></div>
+      <div class="tabs"><span class="on">Review</span><span>Findings</span><span>Media</span><span>Fonts</span><span>Options</span></div>
+      <div class="broken"><span class="r">✕ Broken: 0 of 2 checked</span><span class="note" style="font-weight:400;color:var(--dim)">whole-deck issues + 1 slide</span><div class="seg"><span class="on">Everything</span><span>Broken + Look at</span><span>Broken only</span></div></div>
+
+      <div class="legend"><span>━ changed · ┅ needs a look · ✕ broken</span><span>Hover a box for details · double-click a slide for full screen</span></div>
+      <div class="tier">1. Broken: fix before the show · 2 · 0 checked</div>
+      <div class="slide"><div class="slide-head"><span class="sev">✕ Broken</span><b>Slide 17</b><span class="grow"></span><button class="btn sm">☐ Mark checked</button><button class="btn sm">⤢ Full screen</button><button class="btn sm">PowerPoint ↗</button></div>
+        <div class="pair"><div><div class="cap">Before</div><div class="thumb"><div class="t"></div><div class="l" style="top:30%;width:70%"></div><div class="l" style="top:40%;width:55%"></div><div class="x" style="left:5%;top:5%;width:64%;height:16%"></div></div></div><div><div class="cap">After</div><div class="thumb"><div class="t"></div><div class="l" style="top:30%;width:70%"></div><div class="l" style="top:40%;width:55%"></div><div class="x" style="left:5%;top:5%;width:64%;height:16%"></div></div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="fold" style="top:759px"><span>window ends here: the first slide is below it</span></div>
+</div>
+
+<div class="win" id="after" hidden>
+  <div class="top"><span class="logo">Slide<b>Tistic</b></span><span class="tag">PowerPoint is my special interest.</span><span class="grow"></span><button class="btn">SlideFluid ↗</button><button class="btn">Settings</button></div>
+  <div class="layout">
+    <div class="side"><span class="label">Queue</span>
+      <div class="card sel"><div class="nm">Annual Meeting Day 1</div><div class="sub">canva · repaired</div><div class="chips"><span class="chip g">✓ 3</span><span class="chip y">! 2</span><span class="chip r">✕ 2</span><span class="chip y">♪</span><span class="chip r">Aa</span></div></div>
+    </div>
+    <div class="main">
+      <div class="title"><h1>Annual Meeting Day 1</h1><span class="chip g">✓ 3 slides fixed</span><span class="chip y">! 2 slides to look at</span><span class="chip r">✕ 2 broken</span>
+        <span class="src">Canva export<span class="tip"><b>CANVA DETECTED!</b> Buckle up, we got a gRaPhIc dEsIgNeR.<br><span class="inv">Why: fonts embedded once per weight ("Arial Nova Bold"), Canva layout names, picture-heavy slides. Expect stand-in fonts and text that reflows in PowerPoint.</span></span></span>
+        <span class="grow"></span><button class="btn">Export report</button><button class="btn" id="repair-btn">Repair again</button></div>
+      <div class="saved">Saved <b>Annual Meeting Day 1 - mended.pptx</b> · <a>Show in Finder</a> · <a>Open</a></div>
+      <div class="abn r"><span class="ic">✕</span><span class="msg"><b>Text runs off the slide</b> on slides 17 and 24. Fix before the show.</span><button class="btn sm" data-act="broken">Show broken slides <kbd>R</kbd></button></div>
+      <div class="abn r"><span class="ic">Aa</span><span class="msg"><b>Space Grotesk is missing</b> (slides 35–37) and it's a free download.</span><button class="btn p sm" data-act="font" data-short="Space Grotesk installed" data-done="Space Grotesk (Light, Regular, Bold) installed from Fontsource for this user. Restart PowerPoint to use it.">Get Space Grotesk</button></div>
+      <div class="abn r"><span class="ic">Aa</span><span class="msg"><b>5 fonts can be collected</b> (installed on this Mac or in your Creative Cloud): Lato, Roboto Light, Source Sans 3 and 2 more.</span><button class="btn sm" data-act="collect" data-short="5 fonts collected next to the deck" data-done="Copied into Annual Meeting Day 1 - fonts: Lato Regular, Roboto Light, Roboto Light Italic, Source Sans 3 (variable), Source Serif 4 (variable). FONTS.txt lists where each came from.">Collect 5 fonts</button></div>
+      <div class="abn r"><span class="ic">Aa</span><span class="msg"><b>2 fonts are on Adobe Fonts</b>: Museo Sans and Gotham. Activate them, then collect.</span><button class="btn sm" data-act="adobe" data-short="Museo Sans activated" data-done="Museo Sans was activated in Creative Cloud and is now on this Mac. Gotham's page is open in your browser.">Activate in Adobe Fonts ↗</button></div>
+      <div class="abn y"><span class="ic">♪</span><span class="msg"><b>1 video link to download</b> (slide 41, YouTube). Download it, then embed it in PowerPoint.</span><button class="btn sm" data-act="link" data-short="Video link opened" data-done="Opened the YouTube link from slide 41 in your browser. Download it, embed it in PowerPoint, then mark slide 41 checked.">Open video link ↗</button></div>
+      <div class="abn n"><span class="ic">i</span><span class="msg">Aptos is a Microsoft 365 cloud font: older Office won't have it.</span><button class="btn sm" data-act="font" data-short="Aptos installed" data-done="Aptos installed from Microsoft's free download (Aptos, Display, Narrow, Serif, Mono).">Get Aptos</button><button class="icon" data-act="dismiss" aria-label="Dismiss">✕</button></div>
+      <div class="tabs"><span class="on">Review</span><span>Findings</span><span>Media</span><span>Fonts</span><span>Options</span></div>
+      <div class="broken"><span class="r">✕ 2 broken · 0 checked off</span><span style="font-weight:400;color:var(--dim)">whole deck + slide 17</span><div class="seg"><span class="on">Everything</span><span>Broken + Look at</span><span>Broken only</span></div></div>
+      <div class="legend"><span>━ changed · ┅ needs a look · ✕ broken</span><span>Click a slide for full screen</span></div>
+      <div class="tier">1. Broken: fix before the show · 2 · 0 checked</div>
+      <div class="slide"><div class="slide-head"><span class="sev">✕ Broken</span><b>Slide 17</b><span class="grow"></span><button class="btn sm">☐ Mark checked</button><button class="btn sm">⤢ Full screen</button><button class="btn sm">PowerPoint ↗</button></div>
+        <div class="pair"><div><div class="cap">Before</div><div class="thumb"><div class="t"></div><div class="l" style="top:30%;width:70%"></div><div class="l" style="top:40%;width:55%"></div><div class="x" style="left:5%;top:5%;width:64%;height:16%"></div></div></div><div><div class="cap">After</div><div class="thumb"><div class="t"></div><div class="l" style="top:30%;width:70%"></div><div class="l" style="top:40%;width:55%"></div><div class="x" style="left:5%;top:5%;width:64%;height:16%"></div></div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="scrim" id="modal" hidden><div class="modal">
+    <b style="font-size:15px">Compress pictures before repairing?</b>
+    <p class="inv" style="margin:6px 0 12px">Like PowerPoint's Compress Pictures at 150 ppi with cropped areas deleted. No visible change on a 1080p screen; decks load and play snappier.</p>
+    <label class="row"><input type="checkbox" checked> Annual Meeting Day 1 <span class="inv">63 MB → about 21 MB</span></label>
+    <label class="row"><input type="checkbox" checked> Opening Session <span class="inv">204 MB → about 68 MB</span></label>
+    <label class="row"><input type="checkbox"> Awards Night <span class="inv">39.9 MB → about 19.7 MB</span></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-close>Repair without compressing</button><button class="btn p" data-close>Compress and repair</button></div>
+  </div></div>
+  <div class="fold" style="top:759px"><span>window ends here</span></div>
+</div>
+
+<script>
+function show(which) {
+  document.getElementById('before').hidden = which !== 'before';
+  document.getElementById('after').hidden = which !== 'after';
+  document.getElementById('b-before').classList.toggle('on', which === 'before');
+  document.getElementById('b-after').classList.toggle('on', which === 'after');
+}
+document.querySelectorAll('.abn [data-act]').forEach((b) => b.addEventListener('click', () => {
+  const bn = b.closest('.abn');
+  if (b.dataset.act === 'broken') return;
+  if (b.dataset.act === 'dismiss') { bn.style.opacity = 0; setTimeout(() => bn.remove(), 400); return; }
+  bn.className = 'abn done small';
+  bn.title = b.dataset.done || '';
+  bn.querySelector('.ic').textContent = '✓';
+  bn.querySelector('.msg').textContent = b.dataset.short || 'Done';
+  bn.querySelectorAll('button').forEach((x) => x.remove());
+}));
+document.getElementById('repair-btn').addEventListener('click', () => { document.getElementById('modal').hidden = false; });
+document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { document.getElementById('modal').hidden = true; }));
+</script>
+</body>
+</html>

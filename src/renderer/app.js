@@ -34,10 +34,16 @@ async function init() {
   S.info = await api.info();
   S.checks = await api.listChecks();
   applySkin();
+  if (!isMac) {      // shortcut labels: Ctrl on Windows
+    const ctrl = (t) => t.replace(/⇧⌘/g, 'Ctrl+Shift+').replace(/⌘/g, 'Ctrl+').replace(/⌫/g, 'Backspace');
+    document.querySelectorAll('kbd').forEach((k) => { k.textContent = ctrl(k.textContent); });
+    document.querySelectorAll('.hint').forEach((h) => { h.innerHTML = ctrl(h.innerHTML); });
+  }
   $('year').textContent = new Date().getFullYear();
   wireStatic();
   api.onEngineEvent(onEngineEvent);
   api.onWatchFound((files) => addFiles(files, true));
+  api.onFontActivation(onFontActivation);
   api.onUpdateStatus(onUpdateStatus);
   S.tab = S.settings.lastTab || 'review';
   render();
@@ -111,18 +117,21 @@ async function scan(deck) {
   await api.scan(deck.id, deck.path, optionsFor(deck));
 }
 
-async function repair(deck) {
+async function repair(deck, asked = false) {
   if (!deck || deck.status === 'error' || deck.status === 'scanning' || deck.status === 'repairing') return;
+  if (!asked && !(await confirmCompress([deck]))) return;
   deck.status = 'repairing'; deck.stage = words().repairing; deck.kind = 'repair'; deck.progress = null;
+  deck.partialChecks = []; deck.partialHint = null;
   render();
   const r = await api.repair(deck.id, deck.path, optionsFor(deck));
   deck.output = r.output;
 }
 
-function repairAll() {
+async function repairAll() {
   const todo = S.decks.filter((d) => d.status === 'scanned');
   if (!todo.length) { toast('Nothing to repair: add decks, or wait for them to finish checking.'); return; }
-  todo.forEach(repair);
+  if (!(await confirmCompress(todo))) return;
+  todo.forEach((d) => repair(d, true));
   toast(`Repairing ${todo.length} deck${todo.length > 1 ? 's' : ''}, one after another.`);
 }
 
@@ -153,6 +162,12 @@ async function onEngineEvent(ev) {
     else deck.stage = base;
     deck.progress = ev.index && ev.total ? ev.index / ev.total : null;
     renderBusyOnly(deck);
+    return;
+  }
+  if (ev.type === 'partial_export_hint') { deck.partialHint = ev; return; }
+  if (ev.type === 'partial_export') { deck.partialChecks = (deck.partialChecks || []).concat(ev); return; }
+  if (ev.type === 'heartbeat') {
+    if (ev.what && ev.what.startsWith('waiting')) { deck.stage = 'Waiting for PowerPoint: another job is using it'; renderBusyOnly(deck); }
     return;
   }
   if (ev.type === 'requeued') { deck.stage = 'Waiting: a repair went first'; deck.progress = null; renderBusyOnly(deck); return; }
@@ -190,6 +205,7 @@ async function onEngineEvent(ev) {
 async function loadReview(deck) {
   deck.review = await api.loadReview(deck.id);
   await Promise.all([loadVotes(deck), loadChecked(deck)]);
+  lookupAdobe(deck);          // in the background: the banner says "Checking Adobe Fonts…" meanwhile
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -262,7 +278,7 @@ function brokenStrip(deck) {
   let state;
   if (!reds.length) state = '<span class="ok">✓ No broken slides</span>';
   else if (done === reds.length) state = '<span class="ok">✓ Every broken item checked</span>';
-  else state = `<span class="bad">✕ Broken: ${done} of ${reds.length} checked</span>` +
+  else state = `<span class="bad">✕ ${reds.length} broken · ${done} checked off</span>` +
                `<span class="note">${reds.some((v) => v.deck) ? 'whole-deck issues + ' : ''}${reds.filter((v) => !v.deck).length} slide${reds.filter((v) => !v.deck).length === 1 ? '' : 's'}</span>`;
   return `<div class="broken-strip ${!reds.length || done === reds.length ? 'clear' : ''}">${state}<span class="grow"></span>` +
          `<div class="seg" title="Show only some slides (R: Broken only)">${filters}</div></div>`;
@@ -384,10 +400,24 @@ function render() {
   if (deck) renderResults(deck);
 }
 
-function summaryChips(sum) {
-  const w = words();
-  return `<span class="chip g">✓ ${sum.green_fixed} ${w.fixed}</span><span class="chip y">! ${sum.yellow} ${w.look}</span>` +
-         `<span class="chip r">✕ ${sum.red + sum.tool_error} ${w.broken}</span>`;
+// Counts are slides, like the review (2.2, review 2026-10-13): "15 findings" over 2 slides read as 15 jobs. Findings
+// with no slide count once as "the deck". Offers (compress pictures) and low-priority notes aren't counted.
+function slideCounts(data) {
+  const slides = (pred) => new Set((data?.findings || []).filter((f) => !f.informational && pred(f)).map((f) => f.slide || 'deck')).size;
+  return {
+    fixed: slides((f) => f.status === 'green_fixed'),
+    look: slides((f) => f.status === 'yellow' && !f.evidence?.note && f.check_id !== 'M013'),
+    broken: slides((f) => f.status === 'red' || f.status === 'tool_error'),
+  };
+}
+
+function summaryChips(data, short = false) {
+  const w = words(), c = slideCounts(data);
+  const label = (n, word) => (short ? '' : ` ${n === 1 ? 'slide' : 'slides'} ${word}`);
+  const tip = 'Slides; problems that aren\'t on one slide (fonts, deck settings) count once as the deck';
+  return `<span class="chip g" title="${tip}">✓ ${c.fixed}${label(c.fixed, w.fixed)}</span>` +
+         `<span class="chip y" title="${tip}">! ${c.look}${label(c.look, w.look)}</span>` +
+         `<span class="chip r" title="${tip}">✕ ${c.broken}${short ? '' : ` ${w.broken}`}</span>`;
 }
 
 // Media is the operator's biggest pre-show job (download, offline, re-embed), so it gets its own signal.
@@ -443,10 +473,17 @@ async function getFonts(deck, families) {
   if (r.error) toast(`Couldn't get fonts: ${r.error}`);
   else if (failed.length) toast(failed.map((e) => e.message).join(' · '));
   else if (fontsDone.length) toast(`Installed ${fontsDone.map((e) => e.family).join(', ')}. Restart PowerPoint to use ${fontsDone.length > 1 ? 'them' : 'it'}; checking the deck again.`);
+  const ok = fontsDone.filter((e) => e.ok);
+  if (ok.length) {
+    resolve(deck, families.length === 1 && isNoteFont(deck, families[0]) ? `font-note:${families[0]}` : 'fonts-free',
+      `${ok.map((e) => e.family).join(', ')} installed`, ok.map((e) => e.message).join('\n') + '\nRestart PowerPoint to use them.');
+  }
   deck.fontsAsk = null;
   render();
   if (fontsDone.some((e) => e.ok)) scan(deck);
 }
+
+const isNoteFont = (deck, family) => (deck.review?.data?.fonts || []).some((r) => r.family === family && r.level === 'y');
 
 async function collectFonts(deck) {
   if (!deck || deck.fontsCollecting) return;
@@ -459,6 +496,11 @@ async function collectFonts(deck) {
   const missing = got.filter((e) => /not found|failed|not available/.test(e.how));
   if (r.error || !r.folder) toast(`Couldn't collect fonts: ${r.error || 'no folder made'}`);
   else toast(`${got.length - missing.length} of ${got.length} fonts in "${r.folder.split(/[\\/]/).pop()}"${missing.length ? ` (${missing.length} not found: see FONTS.txt)` : ''}.`);
+  if (r.folder && !r.error) {
+    resolve(deck, 'fonts-collect', `${got.length - missing.length} font${got.length - missing.length === 1 ? '' : 's'} collected next to the deck`,
+      `In ${r.folder}: ${got.map((e) => `${e.name} (${e.how})`).join(', ')}. FONTS.txt lists where each came from.`);
+    render();
+  }
 }
 
 const SLIDEFLUID_RELEASES = 'https://github.com/Horton619/slidefluid/releases/latest';
@@ -471,6 +513,287 @@ function mediaChip(m) {
   return `<span class="chip media ${m.lvl}" title="${esc(tip)}">${SPEAKER}${m.count}</span>`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Action banners (David 2026-10-13, docs/mockups/status-strip.html "After"). Each alert is one line with the
+// action that resolves it; once resolved it turns into a small green line, full detail on hover. Alerts are
+// built from the review each time; what the operator did (resolved, dismissed) lives on the deck.
+
+const SOURCE_LABEL = { canva: 'Canva export', google: 'Google Slides export', keynote: 'Keynote export', pdf: 'Slides are pictures' };
+
+function renderSource(deck) {
+  const data = deck.review?.data;
+  const src = data?.source;
+  const kind = data?.converted_from ? 'keynote' : src?.kind;
+  const el = $('source');
+  el.hidden = !(kind && SHOUT[kind]);
+  if (el.hidden) return;
+  const why = data?.converted_from
+    ? `Converted from Keynote by Keynote itself. Check builds and Magic Move transitions (they become plain fades) and fonts like Avenir. From ${data.converted_from}`
+    : src.message;
+  el.innerHTML = `${esc(data?.converted_from ? 'Converted from Keynote' : SOURCE_LABEL[kind])}<span class="tip"><b>${esc(SHOUT[kind][0])}</b> ` +
+    `${esc(SHOUT[kind][1])}<span class="dim">Why: ${esc(why)}</span></span>`;
+}
+
+// "slides 35–37, 40" with each number a link to the slide.
+function slideRefs(nums) {
+  const list = [...new Set(nums)].filter(Boolean).sort((a, b) => a - b);
+  if (!list.length) return '';
+  const parts = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    const link = (n) => `<a data-slide="${n}">${n}</a>`;
+    parts.push(j > i + 1 ? `${link(list[i])}–${link(list[j])}` : j === i + 1 ? `${link(list[i])}, ${link(list[j])}` : link(list[i]));
+    i = j;
+  }
+  return `slide${list.length > 1 ? 's' : ''} ${parts.join(', ')}`;
+}
+
+const nameList = (rows, max = 3) => {
+  const n = rows.map((r) => esc(r.family));
+  return n.length <= max ? n.join(n.length === 2 ? ' and ' : ', ') : `${n.slice(0, max).join(', ')} and ${n.length - max} more`;
+};
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Each banner: { key, lvl: r|y|n, icon, msg (html), actions: [{ act, label, primary, arg }], dismiss }
+function bannerList(deck) {
+  const data = deck.review?.data;
+  if (!data) return [];
+  const out = [];
+  const findings = data.findings || [];
+
+  const off = findings.filter((f) => f.status === 'red' && f.subject === 'off-slide' && f.slide).map((f) => f.slide);
+  if (off.length) {
+    const { reds, done } = brokenStats(deck);
+    if (reds.length && done === reds.length) deck.resolved = { ...deck.resolved, offslide: { short: 'Broken slides checked', detail: `Text ran off ${slideRefs(off).replace(/<[^>]+>/g, '')}; every broken item is marked checked.` } };
+    else out.push({ key: 'offslide', lvl: 'r', icon: '✕', msg: `<b>Text runs off the slide</b> on ${slideRefs(off)}. Fix before the show.`,
+                    actions: [{ act: 'broken', label: 'Show broken slides <kbd>R</kbd>' }] });
+  }
+
+  const rows = data.fonts || [];
+  const red = rows.filter((r) => r.level === 'r');
+  const free = red.filter((r) => r.free && !r.here);
+  const collectable = red.filter((r) => r.here);
+  const canvaOnly = red.filter((r) => !r.free && !r.here && /^Canva-only/.test(r.status));
+  const rest = red.filter((r) => !r.free && !r.here && !canvaOnly.includes(r));
+  const onAdobe = rest.filter((r) => deck.adobe?.[r.family]?.info);
+  const nowhere = rest.filter((r) => !onAdobe.includes(r));
+  const busy = deck.fontsBusy;
+  if (free.length) {
+    out.push({ key: 'fonts-free', lvl: 'r', icon: AA,
+      msg: free.length === 1 ? `<b>${esc(free[0].family)} is missing</b>${free[0].slides.length ? ` (${slideRefs(free[0].slides)})` : ''} and it's a free download.`
+        : `<b>${free.length} missing fonts are free downloads</b>: ${nameList(free)}.`,
+      actions: [{ act: 'get-fonts', primary: true, disabled: !!busy,
+                  label: busy ? 'Installing…' : free.length === 1 ? `Get ${esc(free[0].family)}` : `Get ${free.length} free fonts` }] });
+  }
+  if (collectable.length) {
+    out.push({ key: 'fonts-collect', lvl: 'r', icon: AA,
+      msg: `<b>${plural(collectable.length, 'font can', 'fonts can')} be collected</b> (installed on this computer or in your Creative Cloud): ${nameList(collectable)}.`,
+      actions: [{ act: 'collect', label: deck.fontsCollecting ? 'Collecting…' : `Collect ${plural(collectable.length, 'font', 'fonts')}`, disabled: !!deck.fontsCollecting }] });
+  }
+  if (onAdobe.length) {
+    const act = deck.activating;
+    out.push({ key: 'fonts-adobe', lvl: 'r', icon: AA,
+      msg: `<b>${plural(onAdobe.length, 'font is', 'fonts are')} on Adobe Fonts</b>: ${nameList(onAdobe)}. Activate ${onAdobe.length > 1 ? 'them' : 'it'}, then collect.` +
+        (act ? ` <span class="dim">Adding ${esc(act.current || '…')} (${act.index + 1} of ${act.total}): click Add on Adobe's page.</span>` : ''),
+      actions: [{ act: 'adobe', label: act ? 'Show Adobe Fonts window' : 'Activate in Adobe Fonts ↗' }] });
+  }
+  if (canvaOnly.length) {
+    out.push({ key: 'fonts-canva', lvl: 'r', icon: AA,
+      msg: `<b>${plural(canvaOnly.length, 'Canva-only font', 'Canva-only fonts')}</b>: ${nameList(canvaOnly)}. No other computer has ${canvaOnly.length > 1 ? 'them' : 'it'}; repair swaps in a stand-in.`,
+      actions: [{ act: 'tab', arg: 'fonts', label: 'Fonts tab' }] });
+  }
+  if (nowhere.length) {
+    const pending = deck.adobe === undefined;
+    out.push({ key: 'fonts-missing', lvl: 'r', icon: AA,
+      msg: `<b>${plural(nowhere.length, 'font is', 'fonts are')} missing</b> and not a free download: ${nameList(nowhere)}.` +
+        (pending ? ' <span class="dim">Checking Adobe Fonts…</span>' : ' Ask whoever made the deck for the files.'),
+      actions: [{ act: 'tab', arg: 'fonts', label: 'Fonts tab' }] });
+  }
+  const yellow = rows.filter((r) => r.level === 'y');
+  if (yellow.length === 1 || yellow.length === 2) {
+    for (const r of yellow) {
+      out.push({ key: `font-note:${r.family}`, lvl: 'n', icon: 'i', dismiss: true,
+        msg: `${esc(r.family)}: ${esc(r.status)}.`,
+        actions: r.free ? [{ act: 'get-font', arg: r.family, label: `Get ${esc(r.family)}`, disabled: !!busy }] : [] });
+    }
+  } else if (yellow.length) {
+    out.push({ key: 'font-notes', lvl: 'y', icon: AA, dismiss: true,
+      msg: `<b>${yellow.length} fonts to check</b>: ${yellow.slice(0, 3).map((r) => `${esc(r.family)} (${esc(r.status)})`).join(', ')}${yellow.length > 3 ? '…' : ''}`,
+      actions: [{ act: 'tab', arg: 'fonts', label: 'Fonts tab' }] });
+  }
+
+  const by = (id, status) => findings.filter((f) => f.check_id === id && (!status || f.status === status));
+  const links = by('M005').concat(by('M006'));
+  if (links.length === 1) {
+    const f = links[0];
+    out.push({ key: 'media-link', lvl: f.check_id === 'M005' ? 'r' : 'y', icon: SPEAKER,
+      msg: `<b>1 video link to download</b> (${slideRefs([f.slide])}${f.evidence?.site ? `, ${esc(f.evidence.site)}` : ''}). Download it, then embed it in PowerPoint.`,
+      actions: [{ act: 'link', arg: f.evidence?.url || f.subject, label: 'Open video link ↗' }] });
+  } else if (links.length) {
+    out.push({ key: 'media-links', lvl: links.some((f) => f.check_id === 'M005') ? 'r' : 'y', icon: SPEAKER,
+      msg: `<b>${links.length} video links to download</b> (${slideRefs(links.map((f) => f.slide))}). Download each, then embed it in PowerPoint.`,
+      actions: [{ act: 'tab', arg: 'media', label: 'Media tab: links' }] });
+  }
+  const missing = by('M003', 'red'), nearby = by('M003', 'yellow');
+  if (missing.length) {
+    out.push({ key: 'media-missing', lvl: 'r', icon: SPEAKER,
+      msg: `<b>${plural(missing.length, 'linked media file is', 'linked media files are')} missing</b> (${slideRefs(missing.map((f) => f.slide))}). Get ${missing.length > 1 ? 'them' : 'it'} and embed.`,
+      actions: [{ act: 'tab', arg: 'media', label: 'Media tab' }] });
+  }
+  if (nearby.length) {
+    out.push({ key: 'media-nearby', lvl: 'y', icon: SPEAKER,
+      msg: `<b>${plural(nearby.length, 'linked media file sits', 'linked media files sit')} next to the deck</b> (${slideRefs(nearby.map((f) => f.slide))}): copy ${nearby.length > 1 ? 'them' : 'it'} with the deck, or embed.`,
+      actions: [{ act: 'tab', arg: 'media', label: 'Media tab' }] });
+  }
+  const m = mediaSummary(data);
+  if (m && m.lvl === 'b' && m.inventory) {
+    out.push({ key: 'media-inventory', lvl: 'n', icon: SPEAKER, dismiss: true,
+      msg: `${esc(m.inventory)} (${slideRefs(m.slides)}). Check ${m.count > 1 ? 'they play' : 'it plays'} on the show machine.`, actions: [] });
+  }
+
+  // Changed-slide export (3.10): offered only when this repair shows it would save real time.
+  if (deck.partialHint && (S.settings.partialExport || 'off') === 'off') {
+    out.push({ key: 'partial-export', lvl: 'n', icon: '⏱', dismiss: true,
+      msg: `Repairing this deck could take about <b>${deck.partialHint.seconds} s less</b>: PowerPoint can draw only the slides each layout round changed.`,
+      actions: [{ act: 'partial-try', label: 'Try it (check mode)' }] });
+  }
+  const pc = deck.partialChecks || [];
+  if (pc.length && deck.status === 'repaired') {
+    const bad = pc.filter((e) => e.mismatch.length);
+    deck.resolved = { ...deck.resolved, 'partial-export': bad.length
+      ? { short: `Changed-slide export disagreed on ${bad.length} round${bad.length > 1 ? 's' : ''} (full export used)`, detail: 'Slides: ' + bad.flatMap((e) => e.mismatch).join(', ') + '. Leave it on Check or Off, and tell David.' }
+      : { short: `Changed-slide export matched the full export (${pc.length} round${pc.length > 1 ? 's' : ''})`, detail: 'Check mode drew each round both ways and they agreed. Once a few decks agree, set it to On in Settings › Diagnostics for the speed.' } };
+  }
+
+  const cf = findings.find((f) => f.check_id === 'M013');
+  if (cf?.status === 'green_fixed') {
+    deck.resolved = { ...deck.resolved, compress: { short: `Pictures compressed: ${data.input_mb} MB → ${data.output_mb ?? '?'} MB`,
+      detail: 'Sized for a 1080p screen with cropped areas deleted, like PowerPoint\'s Compress Pictures at 150 ppi.' } };
+  }
+  return out;
+}
+
+function actionBanners(deck) {
+  // A resolved alert shows as its green line even while the review still lists the problem (a collected
+  // font is still missing on the show machines; an opened link is still in the slides).
+  const resolved = deck.resolved || {};
+  const live = bannerList(deck).filter((b) => !(deck.dismissed || []).includes(b.key) && !resolved[b.key]);
+  const done = Object.entries(deck.resolved || {});
+  const lead = deck.status === 'repaired' ? live.find((b) => b.actions.length)?.actions[0] : null;
+  const button = (a) => `<button class="btn sm${a === lead ? ' p' : ''}" data-act="${a.act}"${a.arg ? ` data-arg="${esc(a.arg)}"` : ''}${a.disabled ? ' disabled' : ''}>${a.label}</button>`;
+  return live.map((b) => `<div class="abn ${b.lvl}" data-key="${esc(b.key)}"><span class="ic">${b.icon}</span><span class="msg">${b.msg}</span>` +
+      b.actions.map(button).join('') + (b.dismiss ? `<button class="icon" data-act="dismiss" aria-label="Dismiss" title="Dismiss">✕</button>` : '') + '</div>').join('') +
+    done.map(([k, r]) => `<div class="abn done small" data-key="${esc(k)}" title="${esc(r.detail || r.short)}"><span class="ic">✓</span><span class="msg">${esc(r.short)}</span></div>`).join('');
+}
+
+function bannerAction(deck, el) {
+  if (!deck) return;
+  const { act, arg } = el.dataset;
+  const key = el.closest('.abn')?.dataset.key;
+  if (act === 'broken') { if (S.tab !== 'review') setTab('review'); setReviewFilter('broken'); return; }
+  if (act === 'tab') { setTab(arg); return; }
+  if (act === 'collect') { collectFonts(deck); return; }
+  if (act === 'adobe') { activateAdobe(deck); return; }
+  if (act === 'get-fonts' || act === 'get-font') {
+    // The Fonts tab shows each font's licence and asks before installing (never accepted on David's behalf).
+    deck.fontsAsk = act === 'get-font' ? [arg]
+      : (deck.review.data.fonts || []).filter((r) => r.level === 'r' && r.free && !r.here).map((r) => r.family);
+    if (S.tab !== 'fonts') setTab('fonts'); else renderFonts(deck);
+    return;
+  }
+  if (act === 'link') {
+    api.openExternal(arg);
+    const f = (deck.review.data.findings || []).find((x) => ['M005', 'M006'].includes(x.check_id));
+    resolve(deck, key, 'Video link opened', `Opened ${arg} in your browser. Download it, embed it in PowerPoint` +
+      `${f?.slide ? `, then mark slide ${f.slide} checked` : ''}.`);
+    render();
+    return;
+  }
+  if (act === 'partial-try') {
+    setSetting('partialExport', 'check');
+    resolve(deck, key, 'Changed-slide export: check mode on', 'Settings › Diagnostics › Export only changed slides is on Check: the next repairs draw both ways and compare.');
+    render();
+    return;
+  }
+  if (act === 'dismiss') { deck.dismissed = [...(deck.dismissed || []), key]; render(); }
+}
+
+function resolve(deck, key, short, detail) {
+  deck.resolved = { ...(deck.resolved || {}), [key]: { short, detail } };
+}
+
+// Adobe Fonts: asked once per review for the missing fonts nothing else can supply.
+async function lookupAdobe(deck) {
+  const rows = (deck.review?.data?.fonts || []).filter((r) => r.level === 'r' && !r.free && !r.here && !/^Canva-only/.test(r.status));
+  if (!rows.length) { deck.adobe = {}; return; }
+  const families = rows.map((r) => r.family);
+  if (deck.adobe && families.every((f) => f in deck.adobe)) return;
+  deck.adobe = undefined;
+  const got = await api.adobeFonts(families);
+  deck.adobe = got || {};
+  if (selected() === deck) render();
+}
+
+async function activateAdobe(deck) {
+  const rows = (deck.review?.data?.fonts || []).filter((r) => r.level === 'r' && deck.adobe?.[r.family]?.info);
+  const items = rows.map((r) => ({ family: r.family, link: deck.adobe[r.family].info.link }));
+  const r = await api.activateFonts(deck.id, items);
+  if (r?.error) { toast(`Couldn't open Adobe Fonts: ${r.error}`); return; }
+  if (r?.ok) toast('Sign in to Adobe if asked, then click "Add" on each font\'s page. The window moves on by itself.');
+}
+
+function onFontActivation(ev) {
+  const deck = S.decks.find((d) => d.id === ev.deckId);
+  if (!deck) return;
+  if (ev.finished) {
+    deck.activating = null;
+    if (ev.done.length) {
+      delete deck.resolved?.['fonts-collect'];       // newly activated fonts are collectable now
+      resolve(deck, 'fonts-adobe', `${ev.done.join(', ')} activated`,
+        `Activated from Adobe Fonts through Creative Cloud: ${ev.done.join(', ')}.${ev.done.length < ev.total ? ` ${ev.total - ev.done.length} not added.` : ''} Collect fonts copies them next to the deck.`);
+      toast(`${ev.done.join(', ')} ${ev.done.length > 1 ? 'are' : 'is'} on this computer now. Checking the deck again.`);
+      scan(deck);
+    } else render();
+    return;
+  }
+  deck.activating = ev;
+  if (ev.done.length && ev.current) toast(`${ev.done[ev.done.length - 1]} added. Next: ${ev.current}.`);
+  if (selected() === deck) render();
+}
+
+// Compression is offered when Repair is clicked (David 2026-10-13), for every deck in that repair that could
+// shrink and hasn't been asked yet.
+function compressOffer(deck) {
+  const cf = (deck.review?.data?.findings || []).find((f) => f.check_id === 'M013' && f.status === 'yellow');
+  if (!cf || deck.compress !== undefined) return null;
+  const m = /from ([\d.,]+ [KMG]B) to about ([\d.,]+ [KMG]B)/.exec(cf.message || '');
+  return m ? `${m[1]} → about ${m[2]}` : '';
+}
+
+function confirmCompress(decks) {
+  const ask = decks.map((d) => [d, compressOffer(d)]).filter(([, o]) => o !== null);
+  if (!ask.length) return Promise.resolve(true);
+  return new Promise((done) => {
+    $('cm-rows').innerHTML = ask.map(([d, o], i) => `<label class="cm-row"><input type="checkbox" data-cm="${i}" checked> ` +
+      `${esc(d.name)}<span class="dim">${esc(o)}</span></label>`).join('');
+    const modal = $('compress-modal');
+    modal.hidden = false;
+    const finish = (choice) => {
+      observer.disconnect();
+      modal.hidden = true;
+      if (choice !== null) ask.forEach(([d], i) => { d.compress = choice && !!document.querySelector(`[data-cm="${i}"]`)?.checked; });
+      done(choice !== null);
+    };
+    // Esc or a click outside closes it (no repair): watch for the generic modal close.
+    const observer = new MutationObserver(() => { if (modal.hidden) finish(null); });
+    observer.observe(modal, { attributes: true, attributeFilter: ['hidden'] });
+    $('cm-yes').onclick = () => finish(true);
+    $('cm-no').onclick = () => finish(false);
+    $('cm-yes').focus();
+  });
+}
+
 function renderQueue() {
   $('queue-count').textContent = S.decks.length ? `${S.decks.length} deck${S.decks.length > 1 ? 's' : ''}` : '';
   $('queue').innerHTML = S.decks.map((d) => {
@@ -481,7 +804,7 @@ function renderQueue() {
       body = `<div class="chips"><span class="chip v">${esc(d.status === 'queued' ? 'Waiting…' : d.stage)}</span></div><div class="mini-bar"><i></i></div>`;
     else if (sum) {
       const m = mediaSummary(d.review.data);
-      let chips = summaryChips(sum).replace(/ (fixed|to look at|still broken|choo-choo'd|sus|derailed)/g, '');
+      let chips = summaryChips(d.review.data, true);
       const { reds, done } = brokenStats(d);
       if (reds.length && done === reds.length) chips = chips.replace('<span class="chip r">✕', '<span class="chip r cleared" title="Every broken item has been checked">✓');
       const fo = fontSummary(d.review.data);
@@ -492,7 +815,8 @@ function renderQueue() {
     return `<div class="card ${d.id === S.sel ? 'sel' : ''} ${d.status === 'error' ? 'err' : ''}" data-id="${d.id}" title="${esc(d.path)}">
       <button class="icon x" data-remove="${d.id}" aria-label="Remove from queue" title="Remove from queue (the file isn't touched)">✕</button>
       <div class="nm">${esc(d.name)}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}${body}</div>`;
-  }).join('');
+  }).join('') || `<div class="queue-empty">Nothing here yet. Drop decks or folders anywhere in this window, or press ${isMac ? '⌘O' : 'Ctrl+O'}. ` +
+    'Each deck is checked as soon as it arrives; nothing is changed until you click Repair.</div>';
 }
 
 function renderBusyOnly(deck) {
@@ -509,73 +833,28 @@ function renderBusyOnly(deck) {
 function renderResults(deck) {
   const data = deck.review?.data;
   $('deck-name').textContent = deck.name;
-  $('deck-chips').innerHTML = data ? summaryChips(data.summary) : '';
+  $('deck-chips').innerHTML = data ? summaryChips(data) : '';
   const busy = deck.status === 'scanning' || deck.status === 'repairing' || deck.status === 'queued';
   $('busy').hidden = !busy;
   if (busy) renderBusyOnly(deck);
   $('btn-repair').disabled = busy || deck.status === 'error';
   $('btn-repair').textContent = deck.status === 'repaired' ? 'Repair again' : 'Repair';
-  $('btn-export').disabled = deck.status !== 'repaired' || S.settings.quickRepair;
+  // One primary button per screen (2.7): Repair until the deck is repaired, then the top alert's action.
+  $('btn-repair').classList.toggle('p', deck.status !== 'repaired');
+  // First-run hints (2.8). Export stays clickable when it can't run so it can say why (a disabled button
+  // shows no tooltip); it only looks disabled.
+  const exportWhy = S.settings.quickRepair ? 'Quick repair makes no report. Turn Quick repair off in Settings, then repair again.'
+    : deck.status !== 'repaired' ? 'The report is made when you repair the deck. Repair first, then export it.' : '';
+  $('btn-export').classList.toggle('off', !!exportWhy);
+  $('btn-export').dataset.why = exportWhy;
+  $('btn-export').title = exportWhy || 'Save the HTML report (before/after pictures and every finding) to share';
+  const outName = `${deck.name}${S.settings.suffix || ' - mended'}.pptx`;
+  $('btn-repair').title = `Writes "${outName}" ${S.settings.outputFolder ? `in ${S.settings.outputFolder}` : 'next to the original'}. ` +
+    'Your original file is never changed.';
   $('btn-finder').textContent = isMac ? 'Show in Finder' : 'Show in Explorer';
 
-  const src = data?.source;
-  $('source').hidden = !(src && SHOUT[src.kind]);
-  if (src && SHOUT[src.kind]) $('source').innerHTML = `<b>${esc(SHOUT[src.kind][0])}</b> ${esc(SHOUT[src.kind][1])}<small>${esc(src.message)}</small>`;
-  if (data?.converted_from) {        // converted from Keynote: say so even if the export left no fingerprint
-    $('source').hidden = false;
-    $('source').innerHTML = `<b>${esc(SHOUT.keynote[0])}</b> Converted from Keynote by Keynote itself. Check builds and Magic Move ` +
-      `transitions (they become plain fades) and fonts like Avenir.<small>${esc(data.converted_from)}</small>`;
-  }
-
-  const off = [...new Set((data?.findings || []).filter((f) => f.status === 'red' && f.subject === 'off-slide' && f.slide).map((f) => f.slide))].sort((a, b) => a - b);
-  $('alert').hidden = !off.length;
-  if (off.length) $('alert').innerHTML = `✕ Text runs off the slide on slide${off.length > 1 ? 's' : ''} ${off.map((n) => `<a data-slide="${n}">${n}</a>`).join(', ')}. Fix before the show.`;
-
-  const cf = (data?.findings || []).find((f) => f.check_id === 'M013');
-  const cb = $('compress-banner');
-  cb.hidden = deck.status === 'error' || !cf;
-  if (cf) {
-    if (cf.status === 'green_fixed') {
-      cb.className = 'compress-banner done';
-      cb.innerHTML = `<b>Pictures compressed</b><span>${data.input_mb} MB → ${data.output_mb ?? '?'} MB, sized for a 1080p screen with cropped areas deleted.</span>`;
-    } else {
-      cb.className = `compress-banner${deck.compress ? ' on' : ''}`;
-      cb.innerHTML = `<div><b>This deck could be much smaller</b><span>${esc(cf.message.replace(/ Turn on Compress pictures to do it on repair\.$/, ''))}</span>` +
-        `<small>Like PowerPoint's Compress Pictures at 150 ppi with cropped areas deleted: no visible change on a 1080p screen, and the deck loads and plays snappier on weaker laptops.</small></div>` +
-        `<label class="switch"><input type="checkbox" data-compress ${deck.compress ? 'checked' : ''}> Compress pictures on repair</label>`;
-    }
-  }
-
-  const m = deck.status === 'error' ? null : mediaSummary(data);
-  const mb = $('media-banner');
-  mb.hidden = !m;
-  if (m) {
-    const slideLinks = (list) => (list.length ? ` (slide${list.length > 1 ? 's' : ''} ${list.map((n) => `<a data-slide="${n}">${n}</a>`).join(', ')})` : '');
-    const head = { r: 'Media won\'t play offline as it is', y: 'Media needs prep before the show', b: 'This deck plays media' }[m.lvl];
-    mb.className = `media-banner ${m.lvl}`;
-    mb.innerHTML = `${SPEAKER}<div class="mb-body"><b>${head}</b>` +
-      m.issues.map((i) => `<div class="mb-issue ${i.lvl}">${i.n} ${esc(i.what)}${slideLinks(i.slides)}</div>`).join('') +
-      (m.inventory ? `<div class="mb-inv">${esc(m.inventory)}${slideLinks(m.slides)}. Check ${m.count > 1 ? 'they play' : 'it plays'} on the show machine.</div>` : '') +
-      `</div><button class="btn" data-goto-media>Media tab</button>`;
-  }
-
-  const fo = deck.status === 'error' ? null : fontSummary(data);
-  const fb = $('font-banner');
-  fb.hidden = !fo;
-  if (fo) {
-    const names = (list) => list.slice(0, 4).map((r) => esc(r.family)).join(', ') + (list.length > 4 ? ` and ${list.length - 4} more` : '');
-    const onSlides = (list) => { const n = new Set(list.flatMap((r) => r.slides)).size; return n ? ` (on ${n} slide${n > 1 ? 's' : ''})` : ''; };
-    const head = fo.lvl === 'r' ? 'Fonts missing on show machines' : 'Fonts to check before the show';
-    const busy = deck.fontsBusy;
-    fb.className = `media-banner ${fo.lvl}`;
-    fb.innerHTML = `${AA}<div class="mb-body"><b>${head}</b>` +
-      (fo.red.length ? `<div class="mb-issue r">${fo.red.length} missing: ${names(fo.red)}${onSlides(fo.red)}${fo.free.length ? `. Free to install: ${names(fo.free)}` : ''}</div>` : '') +
-      (fo.yellow.length ? `<div class="mb-issue y">${fo.yellow.length} to check: ${fo.yellow.map((r) => `${esc(r.family)} (${esc(r.status)})`).join(', ')}</div>` : '') +
-      (fo.unused ? `<div class="mb-inv">${fo.unused} more font${fo.unused > 1 ? 's are' : ' is'} named in the deck but not used by any text (PowerPoint may still list ${fo.unused > 1 ? 'them' : 'it'}).</div>` : '') +
-      '</div>' +
-      (fo.free.length ? `<button class="btn p" data-fonts-get-all ${busy ? 'disabled' : ''}>${busy ? 'Installing…' : `Get ${fo.free.length} free font${fo.free.length > 1 ? 's' : ''}`}</button>` : '') +
-      '<button class="btn" data-goto-fonts>Fonts tab</button>';
-  }
+  renderSource(deck);
+  $('actions').innerHTML = deck.status === 'error' ? '' : actionBanners(deck);
 
   $('saved').hidden = !(deck.status === 'repaired' && deck.output);
   if (deck.output) {
@@ -641,7 +920,7 @@ function renderReview(deck) {
   const repaired = !!data.output;
   const legend = `<div class="legend">${Object.entries(KIND_LABEL).map(([k, l]) => `<span><i class="sw" style="border-color:var(--k-${k})"></i>${l}</span>`).join('')}` +
                  '<span>━ changed · ┅ needs a look · ✕ broken</span><span>Hover a box for details · double-click a slide for full screen</span></div>';
-  const tiers = { 1: 'Broken: fix before the show', 2: 'Changes SlideTistic made: check them', 3: 'Needs a look' };
+  const tiers = { 1: 'Broken: fix before the show', 2: 'Changes SlideTistic made: glance if you have time', 3: 'Needs a look' };
   let html = brokenStrip(deck) + legend;
   if (repaired && tuningOn() && voteStats(deck).votable.length) {
     html = `<div class="tuning-bar"><b>Tuning mode</b><span>${esc(tuningLine(deck))}</span><span class="grow"></span>` +
@@ -683,7 +962,7 @@ function slideCard(deck, v, repaired) {
   const pair = repaired
     ? `<div class="pair">${frameHtml(deck, 'Before', v.before_png, v.before_boxes, v.slide, v.media)}${frameHtml(deck, v.undone ? 'After (layout changes undone)' : 'After', v.after_png, v.after_boxes, v.slide, v.media)}</div>`
     : `<div class="single">${frameHtml(deck, 'As PowerPoint draws it', v.before_png, v.before_boxes, v.slide, v.media)}</div>`;
-  const badge = { 1: '<span class="sev r">✕ Broken</span>', 2: '<span class="sev c">Changed</span>', 3: '<span class="sev y">! Look at</span>', 5: '<span class="sev n">Note</span>' }[v.tier] || '';
+  const badge = tierBadge(v);
   return `<section class="slide sev-${v.tier} ${v.undone ? 'undone' : ''}${isChecked(deck, v) ? ' checked' : ''}" id="slide-${v.slide}"><div class="slide-head">${badge}<b>Slide ${v.slide}</b>
     ${checkedButton(deck, v, false)}
     <button class="btn" data-fs="${v.slide}" title="Full screen (F)">⤢ Full screen</button>
@@ -835,13 +1114,36 @@ function openViewer(slide) {
   renderViewer();
 }
 
+const tierBadge = (v) => ({ 1: '<span class="sev r">✕ Broken</span>', 2: '<span class="sev c">Changed</span>', 3: '<span class="sev y">! Look at</span>',
+                            5: '<span class="sev n">Note</span>' }[v.tier] || '');
+
+// What's on this slide, in words (2.3): the viewer used to show it only on hover.
+function viewerFindings(deck, v) {
+  const icon = { red: '✕', tool_error: '?', yellow: '!', green_fixed: '✓' };
+  const rows = (deck.review.data.findings || []).filter((f) => f.slide === v.slide && !f.informational && icon[f.status]);
+  if (!rows.length) return '';
+  const order = { red: 0, tool_error: 0, yellow: 1, green_fixed: 2 };
+  rows.sort((a, b) => order[a.status] - order[b.status]);
+  return rows.map((f) => {
+    const cls = { red: 'r', tool_error: 'r', yellow: 'y', green_fixed: 'g' }[f.status];
+    const why = S.settings.showWhy && f.evidence?.rule ? `<small>Why: ${esc(f.evidence.rule)}</small>` : '';
+    return `<li class="${cls}"><span class="fi">${icon[f.status]}</span><span><b>${esc(f.check_id)}</b> ${esc(f.message)}${why}</span></li>`;
+  }).join('');
+}
+
 function renderViewer() {
   const deck = selected();
   const visuals = deck?.review?.data?.visuals || [];
   const v = visuals[S.viewer.idx];
   if (!v) { closeViewer(); return; }
   const repaired = !!deck.review.data.output;
-  $('viewer-title').textContent = `Slide ${v.slide}  ·  ${S.viewer.idx + 1} of ${visuals.length}`;
+  const shown = visuals.filter(inFilter);       // the counter follows the review filter (R)
+  const pos = shown.indexOf(v);
+  $('viewer-title').innerHTML = `${tierBadge(v)} Slide ${v.slide}  ·  ${pos >= 0 ? pos + 1 : '–'} of ${shown.length}` +
+    (S.reviewFilter !== 'all' ? ' <small class="dim">(filtered: R shows all)</small>' : '');
+  const list = viewerFindings(deck, v);
+  $('viewer-findings').hidden = !list;
+  $('viewer-findings').innerHTML = list ? `<ul>${list}</ul>` : '';
   const canUndo = repaired && deck.review.data.prefit && !v.undone && (v.after_boxes || []).some((b) => b.mode === 'changed');
   $('v-undo').hidden = !canUndo;
   $('v-mode').hidden = !repaired;
@@ -866,7 +1168,7 @@ function renderViewer() {
   if (voting) $('v-vote').innerHTML = `${voteControls(deck, v, true)}<span class="note">${esc(tuningLine(deck))}</span>`;
   $('viewer-hint').innerHTML = voting
     ? '← → slides · <kbd>Y</kbd>/<kbd>↑</kbd> 👍 next · <kbd>N</kbd>/<kbd>↓</kbd> 👎 · <kbd>1</kbd>–<kbd>4</kbd> 👎 with why, next · <kbd>0</kbd> clear · <kbd>B</kbd>/<kbd>Space</kbd> flip · <kbd>U</kbd> undo · <kbd>Esc</kbd> close'
-    : '← → slides · <kbd>B</kbd> / hold <kbd>Space</kbd> flip before↔after · <kbd>U</kbd> undo this slide · <kbd>P</kbd> open in PowerPoint · <kbd>Esc</kbd> close';
+    : '← → slides · <kbd>B</kbd> / hold <kbd>Space</kbd> flip before↔after · <kbd>C</kbd> mark checked · <kbd>R</kbd> broken only · <kbd>U</kbd> undo this slide · <kbd>P</kbd> open in PowerPoint · <kbd>Esc</kbd> close';
 }
 
 function setReviewFilter(f) {
@@ -896,6 +1198,16 @@ const viewerSlide = () => (selected()?.review?.data?.visuals || [])[S.viewer?.id
 
 // ---------------------------------------------------------------------------------------------
 // Actions
+
+// Keys that throw work away take two presses (2.4; VEP: two-step confirm, no undo toast). The first press says
+// what the second will do; the second must come within 3 seconds.
+let armedKey = null;
+function confirmKey(id, message) {
+  if (armedKey && armedKey.id === id && Date.now() - armedKey.t < 3000) { armedKey = null; return true; }
+  armedKey = { id, t: Date.now() };
+  toast(message);
+  return false;
+}
 
 async function undoSlide(slide) {
   const deck = selected();
@@ -944,6 +1256,7 @@ async function openSettings() {
   $('s-quick').checked = !!s.quickRepair; $('s-watch').value = s.watchFolder || ''; $('s-crew').value = s.crewFonts || '';
   $('s-why').checked = !!s.showWhy;
   $('s-shapecache').checked = s.shapeCache !== false;
+  $('s-partial').value = s.partialExport || 'off';
   $('s-hideppt').checked = s.hidePowerPoint !== false;
   $('s-tuning').checked = !!s.tuningMode;
   document.querySelectorAll('.mac-only').forEach((el) => { el.hidden = !isMac; });
@@ -1019,6 +1332,7 @@ function wireStatic() {
   $('btn-finder').onclick = () => { const d = selected(); if (d) api.showInFolder(d.status === 'repaired' && d.output ? d.output : d.path); };
   $('btn-export').onclick = async () => {
     const d = selected(); if (!d) return;
+    if ($('btn-export').dataset.why) { toast($('btn-export').dataset.why); return; }
     const r = await api.exportReport(d.id, d.name);
     if (r.error) toast(r.error); else if (r.path) toast(`Report saved: ${r.path}`);
   };
@@ -1079,8 +1393,8 @@ function wireStatic() {
     const un = t.closest('[data-undo]'); if (un) { undoSlide(Number(un.dataset.undo)); return; }
     const pp = t.closest('[data-ppt]'); if (pp) { openInPowerPoint(Number(pp.dataset.ppt)); return; }
     const jp = t.closest('[data-jump]'); if (jp) { jumpToSlide(Number(jp.dataset.jump)); return; }
-    const sl = t.closest('#alert [data-slide]'); if (sl) { jumpToSlide(Number(sl.dataset.slide)); return; }
-    const ms = t.closest('#media-banner [data-slide]'); if (ms) { S.mediaSlide = Number(ms.dataset.slide); setTab('media'); return; }
+    const ab = t.closest('#actions [data-act]'); if (ab) { bannerAction(selected(), ab); return; }
+    const sl = t.closest('#actions [data-slide]'); if (sl) { jumpToSlide(Number(sl.dataset.slide)); return; }
     if (t.closest('[data-goto-media]')) { setTab('media'); return; }
     if (t.closest('[data-goto-fonts]')) { setTab('fonts'); return; }
     const fsl = t.closest('[data-fslide]'); if (fsl) { jumpToSlide(Number(fsl.dataset.fslide)); return; }
@@ -1094,13 +1408,6 @@ function wireStatic() {
     if (t.closest('[data-fonts-collect]')) { collectFonts(selected()); return; }
     if (t.closest('[data-fonts-yes]')) { const d = selected(); const fams = d.fontsAsk || []; d.fontsAsk = null; getFonts(d, fams); return; }
     if (t.closest('[data-fonts-no]')) { const d = selected(); d.fontsAsk = null; renderFonts(d); return; }
-    if (t.matches('[data-compress]')) {
-      const d = selected(); if (!d) return;
-      d.compress = t.checked;
-      toast(t.checked ? 'Pictures will be compressed when you repair this deck.' : 'Pictures will be left as they are.');
-      render();
-      return;
-    }
     const fl = t.closest('[data-filter]'); if (fl) { S.filter = fl.dataset.filter; render(); return; }
     const md = t.closest('[data-media]'); if (md) { exportMedia(md.dataset.media); return; }
     const url = t.closest('[data-url]'); if (url) { api.openExternal(url.dataset.url); return; }
@@ -1134,6 +1441,7 @@ function wireStatic() {
     if (t.id === 's-crew') setSetting('crewFonts', t.value);
     if (t.id === 's-why') setSetting('showWhy', t.checked);
     if (t.id === 's-shapecache') setSetting('shapeCache', t.checked);
+    if (t.id === 's-partial') setSetting('partialExport', t.value);
     if (t.id === 's-hideppt') setSetting('hidePowerPoint', t.checked);
     if (t.id === 's-tuning') {
       setSetting('tuningMode', t.checked).then(async () => {
@@ -1184,7 +1492,10 @@ function onKey(e) {
     else if (e.key === 'ArrowLeft') viewerStep(-1);
     else if (e.key.toLowerCase() === 'b') { S.viewer.mode = S.viewer.mode === 'side' ? 'flip' : 'side'; renderViewer(); }
     else if (e.code === 'Space') { e.preventDefault(); if (S.viewer.mode === 'side') S.viewer.mode = 'flip'; if (!e.repeat) { S.viewer.flipShow = 'before'; renderViewer(); } }
-    else if (e.key.toLowerCase() === 'u' && !$('v-undo').hidden) undoSlide(viewerSlide());
+    else if (e.key.toLowerCase() === 'u' && !$('v-undo').hidden) {
+      const n = viewerSlide();
+      if (confirmKey(`u${n}`, `Press U again to put slide ${n} back the way it was before the layout fixes.`)) undoSlide(n);
+    }
     else if (e.key.toLowerCase() === 'p') openInPowerPoint(viewerSlide());
     else if (e.key.toLowerCase() === 'c' && !mod) { const d = selected(); const v = d?.review?.data?.visuals?.[S.viewer.idx]; if (v) toggleChecked(d, v); }
     else if (e.key.toLowerCase() === 'r' && !mod) setReviewFilter(S.reviewFilter === 'broken' ? 'all' : 'broken');
@@ -1198,7 +1509,7 @@ function onKey(e) {
     return;
   }
   if (e.key === 'Escape') { document.querySelectorAll('.modal-back').forEach((m) => { m.hidden = true; }); return; }
-  if (typing) return;
+  if (typing || [...document.querySelectorAll('.modal-back')].some((m) => !m.hidden)) return;   // not behind a dialog
   if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); $('btn-add').click(); }
   else if (mod && e.shiftKey && e.key.toLowerCase() === 'r') { e.preventDefault(); repairAll(); }
   else if (mod && e.key.toLowerCase() === 'r') { e.preventDefault(); repair(selected()); }
@@ -1207,13 +1518,17 @@ function onKey(e) {
   else if (e.key === '?') $('shortcuts').hidden = false;
   else if (e.key.toLowerCase() === 'v' && !mod && tuningOn()) startVoting();
   else if (e.key.toLowerCase() === 'r' && !mod && selected()?.review) { setTab('review'); setReviewFilter(S.reviewFilter === 'broken' ? 'all' : 'broken'); }
-  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+  else if (mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {      // plain arrows scroll the review (2.5)
     if (!S.decks.length) return;
     e.preventDefault();
     const i = S.decks.findIndex((d) => d.id === S.sel);
     const j = Math.max(0, Math.min(S.decks.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
     S.sel = S.decks[j].id; render();
-  } else if (e.key === 'Backspace' || e.key === 'Delete') { const d = selected(); if (d) removeDeck(d); }
+  } else if (e.key === 'Backspace' || e.key === 'Delete') {
+    const d = selected();
+    if (d && confirmKey(`rm${d.id}`, `Press ${e.key === 'Delete' ? 'Delete' : 'Backspace'} again to remove "${d.name}" from the queue${
+      d.status === 'scanning' || d.status === 'repairing' ? ' (stops its job)' : ''}.`)) removeDeck(d);
+  }
   else if (['1', '2', '3', '4', '5'].includes(e.key)) setTab(['review', 'findings', 'media', 'fonts', 'options'][Number(e.key) - 1]);
   else if (e.key.toLowerCase() === 'f') {
     const v = (selected()?.review?.data?.visuals || []).find((x) => x.tier < 4) || (selected()?.review?.data?.visuals || [])[0];

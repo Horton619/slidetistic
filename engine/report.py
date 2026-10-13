@@ -230,9 +230,21 @@ def _ranges(nums) -> str:
     return ", ".join(out)
 
 
+def web_link(url) -> bool:
+    """A link from a deck is clickable in the report only if it's a plain web address with a host: a
+    `javascript:` or `file:` link would run or open something on the reader's computer (review 2026-10-13)."""
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(str(url).strip())
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and bool(u.hostname) and u.username is None and u.password is None
+
+
 def _table(columns, rows, link_key=None) -> str:
     head = "".join(f"<th>{e(c)}</th>" for c, _ in columns)
     body = "".join("<tr>" + "".join(
-        f"<td><a href='{e(r[k])}'>{e(r[k])}</a></td>" if k == link_key else f"<td>{e(r.get(k, ''))}</td>"
+        f"<td><a href='{e(r[k])}' rel='noopener noreferrer'>{e(r[k])}</a></td>"
+        if k == link_key and web_link(r.get(k)) else f"<td>{e(r.get(k, ''))}</td>"
         for _, k in columns) + "</tr>" for r in rows)
     return f"<div class=wrap><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"

@@ -21,7 +21,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from .core import tools
+from .core import events, tools
 from .core.deck import write_render_copy
 
 CONTAINER_TMP = Path.home() / "Library/Containers/com.microsoft.Powerpoint/Data/tmp/slidetistic"
@@ -158,6 +158,10 @@ def _deck_size(pptx: Path) -> tuple[int, float]:
     return slides, pptx.stat().st_size / 1e6
 
 
+# Where a job's time goes (review 2026-10-13, 3.8): the CLI reports these at the end ("timing" event).
+STATS = {"exports": 0, "export_s": 0.0, "cache_hits": 0, "lock_wait_s": 0.0, "pages": 0, "page_s": 0.0}
+
+
 class _Renderer:
     work: Path
 
@@ -169,18 +173,48 @@ class _Renderer:
         key = content_key(pptx)
         if key in cache and cache[key].exists():
             return cache[key]
-        with _render_lock():
-            pdf = self._export(pptx, label)
+        # Between runs too (render_cache): the same deck drawn by the same PowerPoint, Poppler and fonts.
+        from . import render_cache
+        stored_key = render_cache.key_for(pptx, getattr(self, "name", type(self).__name__)) if render_cache.MODE != "off" else None
+        stored = render_cache.lookup(stored_key) if stored_key else None
+        if stored and render_cache.MODE != "check":
+            pdf = self.work / f"{_unique_name(label)}.pdf"
+            shutil.copyfile(stored, pdf)        # a copy: the cache may be trimmed while this job runs
+            cache[key] = pdf
+            STATS["cache_hits"] += 1
+            return pdf
+        import time
+        t0 = time.monotonic()
+        with events.heartbeat("waiting for another job's PowerPoint export"):
+            lock = _render_lock().__enter__()
+        t1 = time.monotonic()
+        try:
+            with events.busy("PowerPoint is drawing the slides"):
+                pdf = self._export(pptx, label)
+        finally:
+            lock.__exit__(None, None, None)
+        STATS["exports"] += 1
+        STATS["lock_wait_s"] += t1 - t0
+        STATS["export_s"] += time.monotonic() - t1
+        if stored and not render_cache.same_text(stored, pdf):
+            raise render_cache.CacheMismatch(f"cached render of {pptx.name} differs from a fresh one: the key misses something")
+        if stored_key:
+            render_cache.store(stored_key, pdf)
+        render_cache.record(pptx, pdf)
         cache[key] = pdf
         return pdf
 
     def page_image(self, pdf: Path, page: int, width: int = 960) -> bytes:
         """JPEG: a 30-slide report with PNGs was 15.7 MB; reports must open instantly on a show laptop."""
-        out = self.work / f"{pdf.stem}-p{page}"
+        import time
+        t0 = time.monotonic()
+        out = self.work / f"{pdf.stem}-p{page}-w{width}"
         subprocess.run([pdftoppm_path(), "-jpeg", "-jpegopt", "quality=82", "-singlefile", "-f", str(page), "-l", str(page),
                         "-scale-to-x", str(width), "-scale-to-y", "-1", str(pdf), str(out)],
                        check=True, capture_output=True, timeout=120)
-        return out.with_suffix(".jpg").read_bytes()
+        STATS["pages"] += 1
+        STATS["page_s"] += time.monotonic() - t0
+        return Path(f"{out}.jpg").read_bytes()
 
     def cleanup(self):
         shutil.rmtree(self.work, ignore_errors=True)
@@ -229,11 +263,46 @@ class MacPowerPointRenderer(_Renderer):
         self.work.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def _osa(script: str, timeout: float) -> subprocess.CompletedProcess | None:
+    def _osa(script: str, timeout: float, args: tuple[str, ...] = (), on_start=None) -> subprocess.CompletedProcess | None:
+        """Run AppleScript. Paths and names go in as `args` (read by `on run argv`), never pasted into
+        the script text, so a quote or backslash in a path can't change what the script does."""
+        proc = subprocess.Popen(["osascript", "-e", script, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        if on_start:
+            on_start(proc.pid)
         try:
-            return subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+            out, err = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
             return None
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+    def _close_copy(self, src: Path) -> bool:
+        """Close our copy by its unique name if PowerPoint still has it open. False: PowerPoint didn't answer."""
+        if subprocess.run(["pgrep", "-x", "Microsoft PowerPoint"], capture_output=True).returncode:
+            return True                 # not running: nothing is open
+        r = self._osa('on run argv\nwith timeout of 20 seconds\ntell application "Microsoft PowerPoint"\n'
+                      'if exists presentation (item 1 of argv) then close presentation (item 1 of argv) saving no\n'
+                      'end tell\nend timeout\nend run', 30, (src.name,))
+        return r is not None and r.returncode == 0
+
+    def _close_leftovers(self) -> None:
+        """Copies a stopped engine left open (OPEN_FILE). Runs inside the render lock, so every entry
+        belongs to a job that's gone. If its osascript is still running (the engine was killed but the
+        export carries on), wait for it to finish first: two exports at once is how PowerPoint jammed."""
+        import json
+        import time
+        try:
+            entries = json.loads(OPEN_FILE.read_text(encoding="utf-8")).get("copies", [])
+        except (OSError, ValueError):
+            return
+        for e in entries:
+            while _alive(e.get("pid")) and time.time() < e.get("until", 0):
+                time.sleep(0.5)
+            if not self._close_copy(Path(e["path"])):
+                _mark_stuck(Path(e["path"]))
+            _unjournal(Path(e["path"]))
 
     def _keep_hidden(self) -> bool:
         """Should PowerPoint stay hidden for this render? Yes when it isn't running (it's launched here,
@@ -264,27 +333,59 @@ class MacPowerPointRenderer(_Renderer):
                   '  set visible to false\n end tell\nend try') if hidden else ""
         hide_after = ('try\n tell application "System Events" to set visible of process "Microsoft PowerPoint" to false\n'
                       'end try') if hidden else ""
+        # On any error the copy is closed by its unique name before the error is passed on, so a failed
+        # export never leaves it open in PowerPoint. Not after a timeout (-1712): PowerPoint is stuck, and
+        # `_recover` deals with that.
         script = f'''
-        with timeout of {seconds} seconds
-          tell application "Microsoft PowerPoint"
-            open POSIX file "{src}"
-          end tell
-          {rehide}
-          tell application "Microsoft PowerPoint"
-            -- The file just opened is the active one (its name is unique). Confirm by full path
-            -- before touching it, and never enumerate or query the user's other presentations.
-            set p to active presentation
-            if (full name of p) is not "{src}" then error "SlideTistic's copy isn't the active presentation"
-            save p in ((POSIX file "{pdf}") as text) as save as PDF
-            close p saving no
-          end tell
-          {hide_after}
-        end timeout'''
-        return self._osa(script, seconds + 30)
+        on run argv
+          set src to item 1 of argv
+          -- File references are made here, outside PowerPoint's tell block: inside it, `POSIX file x` of a
+          -- variable goes to PowerPoint, and the save then "succeeds" without writing anything (2026-10-13).
+          set srcFile to POSIX file src
+          set pdfPath to (POSIX file (item 2 of argv)) as text
+          with timeout of {seconds} seconds
+            tell application "Microsoft PowerPoint"
+              open srcFile
+            end tell
+            {rehide}
+            try
+              tell application "Microsoft PowerPoint"
+                -- The file just opened is the active one (its name is unique). Confirm by full path
+                -- before touching it, and never enumerate or query the user's other presentations.
+                set p to active presentation
+                if (full name of p) is not src then error "SlideTistic's copy isn't the active presentation"
+                save p in pdfPath as save as PDF
+                close p saving no
+              end tell
+            on error msg number n
+              if n is not -1712 then
+                try
+                  with timeout of 20 seconds
+                    tell application "Microsoft PowerPoint"
+                      if exists presentation (item 3 of argv) then close presentation (item 3 of argv) saving no
+                    end tell
+                  end timeout
+                end try
+              end if
+              error msg number n
+            end try
+            {hide_after}
+          end timeout
+        end run'''
+        import time
+        limit = seconds + 30
+        run = self._osa(script, limit, (str(src), str(pdf), src.name),
+                        on_start=lambda pid: _journal(src, pid, time.time() + limit))
+        if run is not None and "-1712" not in run.stderr:
+            if run.returncode and not self._close_copy(src):
+                _mark_stuck(src)
+            _unjournal(src)
+        return run
 
     def _export(self, pptx: Path, label: str) -> Path:
         if MacPowerPointRenderer.broken:
             raise RenderError(MacPowerPointRenderer.broken)
+        self._close_leftovers()
         if STUCK_FILE.exists() and not self._recover():
             MacPowerPointRenderer.broken = STUCK_MESSAGE
             raise RenderError(STUCK_MESSAGE)
@@ -299,7 +400,8 @@ class MacPowerPointRenderer(_Renderer):
             return pdf
         hung = run is None or "-1712" in run.stderr       # AppleEvent timed out
         if not hung:
-            raise RenderError(f"PowerPoint couldn't export {pptx.name}: {run.stderr.strip()[:200]}")
+            raise RenderError(f"PowerPoint couldn't export {pptx.name}: "
+                              f"{run.stderr.strip()[:200] or 'it reported no error but wrote no PDF'}")
         _mark_stuck(src)
         salvaged = pdf.exists() and _pdf_complete(pdf, src)
         if not self._recover():
@@ -343,16 +445,16 @@ class MacPowerPointRenderer(_Renderer):
         ours = 0
         for c in copies:            # by our unique random names only: never look at David's decks
             name = Path(c).name
-            r = self._osa(f'with timeout of 10 seconds\ntell application "Microsoft PowerPoint" to '
-                          f'exists presentation "{name}"\nend timeout', 20)
+            r = self._osa('on run argv\nwith timeout of 10 seconds\ntell application "Microsoft PowerPoint" to '
+                          'exists presentation (item 1 of argv)\nend timeout\nend run', 20, (name,))
             ours += r is not None and r.stdout.strip() == "true"
         if int(count.stdout.strip()) > ours:
             return False            # something of David's is open: never quit his PowerPoint
         # Patient first (2026-10-11: a force-quit makes macOS show Microsoft's crash report). Close just
         # our stuck copies, by their unique random names, and test again.
         for c in copies:
-            self._osa(f'with timeout of 20 seconds\ntell application "Microsoft PowerPoint" to '
-                      f'close presentation "{Path(c).name}" saving no\nend timeout', 30)
+            self._osa('on run argv\nwith timeout of 20 seconds\ntell application "Microsoft PowerPoint" to '
+                      'close presentation (item 1 of argv) saving no\nend timeout\nend run', 30, (Path(c).name,))
         if self._probe():
             STUCK_FILE.unlink(missing_ok=True)
             return True
@@ -374,10 +476,74 @@ class MacPowerPointRenderer(_Renderer):
         return self._probe()
 
 
+# Copies handed to PowerPoint and not yet closed, with the osascript driving each. An entry left behind
+# means the engine was stopped mid-export; the next engine closes that copy (`_close_leftovers`).
+OPEN_FILE = CONTAINER_TMP / "open.json"
+
+
+def _alive(pid) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _journal(src: Path, pid: int, until: float) -> None:
+    import json
+    try:
+        data = json.loads(OPEN_FILE.read_text(encoding="utf-8")) if OPEN_FILE.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    rows = [e for e in data.get("copies", []) if e.get("path") != str(src)]
+    rows.append({"path": str(src), "pid": pid, "until": until})
+    OPEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OPEN_FILE.write_text(json.dumps({"copies": rows}), encoding="utf-8")
+
+
+def _unjournal(src: Path) -> None:
+    import json
+    try:
+        data = json.loads(OPEN_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    rows = [e for e in data.get("copies", []) if e.get("path") != str(src)]
+    if rows:
+        OPEN_FILE.write_text(json.dumps({"copies": rows}), encoding="utf-8")
+    else:
+        OPEN_FILE.unlink(missing_ok=True)
+
+
+def open_at_slide(deck: Path, slide: int, wait: float = 45.0) -> str | None:
+    """Mac: show David a deck in PowerPoint at a slide. Takes the render lock so it never lands in the
+    middle of a hidden export (the export confirms "its" copy by being the active presentation).
+    Returns a plain problem, or None."""
+    try:
+        lock = _render_lock(wait=wait).__enter__()
+    except RenderError:
+        return "PowerPoint is busy drawing slides for a check. Try again in a moment."
+    try:
+        r = MacPowerPointRenderer._osa(
+            'on run argv\nset f to POSIX file (item 1 of argv)\nwith timeout of 60 seconds\n'
+            'tell application "Microsoft PowerPoint"\nactivate\nopen f\nset p to active presentation\n'
+            'if (full name of p) is (item 1 of argv) then go to slide (view of document window 1) number '
+            '((item 2 of argv) as integer)\nend tell\nend timeout\nend run', 90, (str(deck.resolve()), str(int(slide))))
+    finally:
+        lock.__exit__(None, None, None)
+    if r is None:
+        return "PowerPoint didn't answer within 90 seconds."
+    if r.returncode:
+        return r.stderr.strip()[:200] or "PowerPoint couldn't open it."
+    return None
+
+
 def _mark_stuck(src: Path) -> None:
     """Remember a copy PowerPoint is stuck on (it stays open in PowerPoint), for this and later runs."""
     import json
     import time
+    _unjournal(src)             # the stuck list takes it over
     try:
         data = json.loads(STUCK_FILE.read_text(encoding="utf-8")) if STUCK_FILE.exists() else {}
     except (OSError, ValueError):
@@ -409,6 +575,7 @@ def _pdf_complete(pdf: Path, deck: Path) -> bool:
 # --- Windows ---------------------------------------------------------------------------------------
 
 PP_SAVE_AS_PDF = 32
+MSO_FORCE_DISABLE = 3          # msoAutomationSecurityForceDisable
 
 
 def _powerpoint_pids() -> set[int]:
@@ -669,11 +836,24 @@ class WindowsPowerPointRenderer(_Renderer):
         def export():
             import pywintypes
             app = self._powerpoint()
+            # Macros never run in a file we open (review 2026-10-13, 1.3). AutomationSecurity covers files
+            # opened through COM only, but the PowerPoint may be the user's, so it's put back afterwards.
+            try:
+                security = _when_free(lambda: app.AutomationSecurity)
+                _when_free(lambda: setattr(app, "AutomationSecurity", MSO_FORCE_DISABLE))
+            except (pywintypes.com_error, AttributeError):
+                security = None
             try:
                 # ReadOnly, Untitled, WithWindow
                 pres = _when_free(lambda: app.Presentations.Open(str(src), True, False, False))
             except (pywintypes.com_error, AttributeError) as e:
                 raise RenderError(f"PowerPoint couldn't open {pptx.name}: {_com_message(e)}") from e
+            finally:
+                if security is not None:
+                    try:
+                        _when_free(lambda: setattr(app, "AutomationSecurity", security))
+                    except (pywintypes.com_error, AttributeError):
+                        pass
             if not os.path.samefile(_when_free(lambda: pres.FullName), src):
                 raise RenderError("PowerPoint returned a different presentation than SlideTistic's copy")
             try:
@@ -711,3 +891,5 @@ class WindowsPowerPointRenderer(_Renderer):
 
 
 PowerPointRenderer = WindowsPowerPointRenderer if sys.platform == "win32" else MacPowerPointRenderer
+if os.environ.get("SLIDETISTIC_RENDER_REPLAY"):         # tests and CI: recorded renders only (render_cache)
+    from .render_cache import ReplayRenderer as PowerPointRenderer  # noqa: F811

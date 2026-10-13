@@ -9,8 +9,9 @@ from .deck import ShapeView
 from .shapes import PICTURE
 
 # We only read image headers for their size; real decks hold 95-megapixel photos (corpus 2026-10-09),
-# which trips Pillow's decompression-bomb warning for no reason.
-PILImage.MAX_IMAGE_PIXELS = None
+# which trips Pillow's default decompression-bomb warning for no reason. A limit stays (review 2026-10-13):
+# Pillow refuses images over twice this (400 MP), which a crafted picture could use to fill memory.
+PILImage.MAX_IMAGE_PIXELS = 200_000_000
 
 BITMAPS = {"image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff"}
 

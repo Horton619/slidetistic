@@ -36,9 +36,25 @@ def keynote_app() -> tuple[str, str] | None:
         return None
     for bundle, name in APPS:
         found = subprocess.run(["mdfind", f"kMDItemCFBundleIdentifier == '{bundle}'"], capture_output=True, text=True)
-        if any(line.endswith(".app") and Path(line).exists() for line in found.stdout.splitlines()):
+        if any(line.endswith(".app") and Path(line).exists() for line in found.stdout.splitlines()) \
+                or bundle in _installed_bundles():
             return bundle, name
     return None
+
+
+def _installed_bundles() -> set[str]:
+    """Bundle ids of the Keynote apps in the Applications folders, read from their Info.plist. For Macs
+    where Spotlight is off or still indexing (mdfind then finds nothing)."""
+    import plistlib
+    out = set()
+    for folder in (Path("/Applications"), Path.home() / "Applications"):
+        for app in folder.glob("*Keynote*.app"):
+            try:
+                with open(app / "Contents/Info.plist", "rb") as f:
+                    out.add(plistlib.load(f).get("CFBundleIdentifier", ""))
+            except (OSError, ValueError, plistlib.InvalidFileException):
+                continue
+    return out
 
 
 def unavailable_reason() -> str | None:
@@ -65,7 +81,8 @@ def _cache_key(key: Path) -> str:
 
 
 def _running(bundle: str) -> bool:
-    r = subprocess.run(["osascript", "-e", f'application id "{bundle}" is running'], capture_output=True, text=True)
+    r = subprocess.run(["osascript", "-e", "on run argv\nreturn application id (item 1 of argv) is running\nend run", bundle],
+                       capture_output=True, text=True)
     return r.stdout.strip() == "true"
 
 
@@ -87,22 +104,31 @@ def convert(key: Path) -> Path:
     tag = f"slidetistic-{uuid.uuid4().hex[:8]}"
     src, out = work / f"{tag}.key", work / f"{tag}.pptx"
     try:
-        (shutil.copytree if key.is_dir() else shutil.copyfile)(key, src)   # older .key files are folders
-        size_mb = sum(f.stat().st_size for f in src.rglob("*")) / 1e6 if src.is_dir() else src.stat().st_size / 1e6
+        if key.is_dir():                    # older .key files are folders
+            shutil.copytree(key, src, symlinks=True)    # links copied as links: never pull in files from elsewhere
+        else:
+            shutil.copyfile(key, src)
+        size_mb = (sum(f.lstat().st_size for f in src.rglob("*")) if src.is_dir() else src.stat().st_size) / 1e6
         seconds = int(min(600, 60 + size_mb / 2))
         was_running = _running(bundle)
         script = f'''
-        with timeout of {seconds} seconds
-          tell application id "{bundle}"
-            set d to open POSIX file "{src}"
-            -- Only the document we just opened, confirmed by its path; nothing else of the user's.
-            if POSIX path of ((file of d) as alias) is not "{src}" then error "Keynote opened a different document"
-            export d to POSIX file "{out}" as Microsoft PowerPoint
-            close d saving no
-          end tell
-        end timeout'''
+        on run argv
+          -- The bundle id is from APPS (ours) and must be literal for Keynote's terms to compile; paths
+          -- come in as arguments.
+          set src to item 1 of argv
+          with timeout of {seconds} seconds
+            tell application id "{bundle}"
+              set d to open POSIX file src
+              -- Only the document we just opened, confirmed by its path; nothing else of the user's.
+              if POSIX path of ((file of d) as alias) is not src then error "Keynote opened a different document"
+              export d to POSIX file (item 2 of argv) as Microsoft PowerPoint
+              close d saving no
+            end tell
+          end timeout
+        end run'''
         try:
-            run = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=seconds + 30)
+            run = subprocess.run(["osascript", "-e", script, str(src), str(out)], capture_output=True, text=True,
+                                 timeout=seconds + 30)
         except subprocess.TimeoutExpired:
             run = None
         if run is None or "-1712" in (run.stderr or ""):
@@ -110,7 +136,8 @@ def convert(key: Path) -> Path:
             raise KeynoteError(f"{name} didn't respond within {seconds} s. It may be showing a welcome, update or "
                                f"missing-font prompt: open {name}, answer it, then check the deck again.")
         if not was_running:
-            subprocess.run(["osascript", "-e", f'tell application id "{bundle}" to quit'], capture_output=True, timeout=30)
+            subprocess.run(["osascript", "-e", "on run argv\ntell application id (item 1 of argv) to quit\nend run", bundle],
+                           capture_output=True, timeout=30)
         if run.returncode or not out.exists():
             raise KeynoteError(f"{name} couldn't convert {key.name}: {(run.stderr or '').strip()[:200]}")
         CACHE.mkdir(parents=True, exist_ok=True)

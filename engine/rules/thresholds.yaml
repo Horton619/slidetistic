@@ -35,6 +35,13 @@ fit_wrap_band_pct: 1             # fit prediction: PowerPoint's real text width 
 fit_max_attempts_per_box: 2      # a box still showing the same layout problem after this many changes goes back as it was
 fit_time_budget_s: 120           # layout fixing stops starting new fixes after this long (the safety check still runs)
 fit_max_rounds: 6               # repair re-renders and re-checks layout at most this many times
+fit_skip_shrinking_autofit: false  # true: no width/font/spacing fixes on boxes PowerPoint is shrinking (autofit)
+# Changed-slide export (review 2026-10-13, 3.10; opt-in: Settings > Diagnostics). Rounds 2+ export only the slides
+# the last round changed, when the deck's first export was slow and few slides changed.
+partial_export_min_export_s: 20  # the round-1 export must have taken at least this long
+partial_export_max_changed_pct: 25  # and at most this share of the visible slides changed
+partial_export_hint_min_saving_s: 30  # off: suggest it when a repair would have saved at least this much
+partial_export_overhead_s: 3     # fixed cost of any export, for the saving estimate
 compress_target_width_px: 2000  # M013: a full-width picture keeps this many pixels (PowerPoint's 150 ppi on a 13.33 in slide, a 1080p screen)
 compress_jpeg_quality: 85       # M013: JPEG quality for resized photos
 compress_pitch_min_pct: 25      # M013: suggest compressing when the deck would shrink by at least this %…

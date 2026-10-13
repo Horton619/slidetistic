@@ -27,7 +27,7 @@
       <div class="queue" id="queue"></div>
       <div class="side-foot">
         <button class="btn" id="btn-add">+ Add decks or a folder</button>
-        <button class="btn p" id="btn-repair-all">Repair all</button>
+        <button class="btn" id="btn-repair-all">Repair all</button>
       </div>
     </aside>
 
@@ -43,7 +43,7 @@
 
       <section class="results" id="results" hidden>
         <div class="res-head">
-          <div class="res-title"><h2 id="deck-name"></h2><div class="chips" id="deck-chips"></div></div>
+          <div class="res-title"><h2 id="deck-name"></h2><div class="chips" id="deck-chips"></div><span class="src" id="source" tabindex="0" hidden></span></div>
           <div class="res-actions">
             <button class="btn" id="btn-finder">Show in Finder</button>
             <button class="btn" id="btn-export">Export report</button>
@@ -55,12 +55,8 @@
           <div class="busy-text"><b id="busy-title"></b><span id="busy-detail"></span><div class="busy-bar"><i id="busy-bar"></i></div></div>
           <button class="btn" id="btn-cancel">Cancel</button>
         </div>
-        <div class="source" id="source" hidden></div>
-        <div class="alert" id="alert" hidden></div>
-        <div class="media-banner" id="media-banner" hidden></div>
-        <div class="media-banner" id="font-banner" hidden></div>
-        <div class="compress-banner" id="compress-banner" hidden></div>
         <div class="saved" id="saved" hidden></div>
+        <div class="actions" id="actions"></div>
         <nav class="tabs" id="tabs">
           <button data-tab="review">Review</button>
           <button data-tab="findings">Findings</button>
@@ -88,6 +84,7 @@
       <button class="icon" id="v-close" aria-label="Close">✕</button>
     </div>
     <div class="viewer-stage" id="viewer-stage"></div>
+    <div class="viewer-findings" id="viewer-findings" hidden></div>
     <div class="vote-row" id="v-vote" hidden></div>
     <div class="viewer-hint" id="viewer-hint">← → slides · <kbd>B</kbd> / hold <kbd>Space</kbd> flip before↔after · <kbd>U</kbd> undo this slide · <kbd>P</kbd> open in PowerPoint · <kbd>Esc</kbd> close</div>
   </div>
@@ -124,6 +121,9 @@
       <div class="set" id="set-diag" hidden>
         <label class="check"><input type="checkbox" id="s-why"> Show the rule behind every call (testing mode)</label>
         <label class="check mac-only"><input type="checkbox" id="s-hideppt"> Keep PowerPoint hidden while checking <span class="note">PowerPoint works out of sight when SlideTistic starts it (Mac). Untick if checks stall: a PowerPoint prompt may be waiting where you can't see it.</span></label>
+        <label class="field">Export only changed slides
+          <select id="s-partial"><option value="off">Off</option><option value="check">Check (both ways, compare)</option><option value="on">On</option></select>
+          <span class="note">For slow decks: after the first layout round, PowerPoint draws only the slides the last round changed. Used only when the first export takes 20 s or more and a quarter of the slides or fewer changed. Check mode draws both ways and reports any difference; switch to On once checks agree.</span></label>
         <label class="check"><input type="checkbox" id="s-shapecache"> Fast shape lookups <span class="note">Remembers each slide's shapes between fixes (much faster layout repair). Untick if repairs ever look wrong, and tell David.</span></label>
         <label class="check"><input type="checkbox" id="s-tuning"> Tuning mode <span class="note">Adds 👍 / 👎 to every slide SlideTistic changed, so David's votes can tune the layout fixes. Votes hold numbers only, no slide text.</span></label>
         <div class="diag" id="diag"></div>
@@ -136,6 +136,16 @@
   </div>
 
   <!-- Shortcuts -->
+  <div class="modal-back" id="compress-modal" hidden>
+    <div class="modal compress-modal" role="dialog" aria-labelledby="cm-title">
+      <b id="cm-title">Compress pictures before repairing?</b>
+      <p class="dim">Like PowerPoint's Compress Pictures at 150 ppi with cropped areas deleted. No visible change on a 1080p
+        screen; decks load and play snappier on weaker laptops.</p>
+      <div id="cm-rows"></div>
+      <div class="cm-actions"><button class="btn" id="cm-no">Repair without compressing</button>
+        <button class="btn p" id="cm-yes">Compress and repair</button></div>
+    </div>
+  </div>
   <div class="modal-back" id="shortcuts" hidden>
     <div class="modal narrow">
       <div class="modal-head"><h2>Shortcuts</h2><button class="icon" data-close aria-label="Close">✕</button></div>
@@ -144,12 +154,12 @@
         <tr><td><kbd>⌘R</kbd></td><td>Repair the selected deck</td></tr>
         <tr><td><kbd>⇧⌘R</kbd></td><td>Repair every deck in the queue</td></tr>
         <tr><td><kbd>⌘E</kbd></td><td>Export the report</td></tr>
-        <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Previous / next deck</td></tr>
-        <tr><td><kbd>⌫</kbd></td><td>Remove the selected deck from the queue (the file isn't touched)</td></tr>
+        <tr><td><kbd>⌘↑</kbd> <kbd>⌘↓</kbd></td><td>Previous / next deck (plain arrows scroll)</td></tr>
+        <tr><td><kbd>⌫</kbd> twice</td><td>Remove the selected deck from the queue (the file isn't touched)</td></tr>
         <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>Review · Findings · Media · Fonts · Options</td></tr>
         <tr><td><kbd>F</kbd> / double-click a slide</td><td>Full-screen review</td></tr>
         <tr><td><kbd>B</kbd> / hold <kbd>Space</kbd></td><td>Flip before ↔ after (full screen)</td></tr>
-        <tr><td><kbd>U</kbd></td><td>Undo the slide's layout changes (full screen)</td></tr>
+        <tr><td><kbd>U</kbd> twice</td><td>Undo the slide's layout changes (full screen)</td></tr>
         <tr><td><kbd>P</kbd></td><td>Open in PowerPoint at that slide (full screen)</td></tr>
         <tr><td><kbd>R</kbd></td><td>Show broken slides only / everything (review and full screen)</td></tr>
         <tr><td><kbd>C</kbd></td><td>Mark a broken slide as checked (full screen)</td></tr>

@@ -99,7 +99,10 @@ def installed() -> dict:
         for p in d.rglob("*"):
             if p.suffix.lower() not in (".ttf", ".otf", ".ttc"):
                 continue
-            st = p.stat()
+            try:
+                st = p.stat()
+            except OSError:             # a broken link (font removed, link left behind)
+                continue
             key = f"{p}|{st.st_size}|{int(st.st_mtime)}"
             names = cache.get(key)
             if names is None:
@@ -158,6 +161,9 @@ def _fontsource_files(entry: dict, variants: list[tuple[int, str]]) -> list[tupl
             for w, st in variants if w in (entry.get("weights") or []) and st in (entry.get("styles") or [])]
 
 
+PUBLISHER_MAX_BYTES = 200 * 1024 * 1024
+
+
 def _publisher_files(entry: dict, p: dict) -> list[dict]:
     """A maker's archive (Microsoft's Aptos ZIP): downloaded once into the cache, then for each variant the file
     whose own name is the deck's family, preferring an exact legacy name ("Aptos Display" → Aptos-Display.ttf,
@@ -168,7 +174,13 @@ def _publisher_files(entry: dict, p: dict) -> list[dict]:
     cache = fonts_catalog.cache_dir() / "downloads" / (hashlib.sha1(entry["url"].encode()).hexdigest()[:12] + ".zip")
     if not cache.exists():
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_bytes(http.get(entry["url"], timeout=120))
+        data = http.get(entry["url"], timeout=120, max_bytes=PUBLISHER_MAX_BYTES)
+        want = entry.get("sha256")
+        if want and hashlib.sha256(data).hexdigest() != want:
+            # Pinned (review 2026-10-13): a changed file from the maker is checked by a person before use.
+            raise RuntimeError(f"{entry.get('publisher', 'The')} download changed since SlideTistic last checked it; "
+                               f"get it from {entry.get('page') or entry['url']}")
+        cache.write_bytes(data)
     with zipfile.ZipFile(cache) as z:
         blobs = [z.read(n) for n in z.namelist() if n.lower().endswith((".ttf", ".otf"))]
     out = []
@@ -393,6 +405,14 @@ def files_for(family: str, variants: list[tuple[int, str]]) -> dict:
     return out
 
 
+def safe_filename(name: str) -> str:
+    """A font name from a deck as a file name: no folder separators, reserved characters or leading dots, so a
+    crafted name ("../../x") can't write outside the fonts folder."""
+    import re
+    clean = re.sub(r'[\x00-\x1f/\\:*?"<>|]', "_", name).strip().lstrip(".")
+    return clean[:200] or "font"
+
+
 def collect(deck_path, out_dir=None, emit=lambda ev: None) -> dict:
     """Every non-Office font the deck's shown text uses, copied into '<deck> - fonts/' next to the deck and named by
     what it is ('Proxima Nova Bold.otf', not Creative Cloud's '.139.otf'). David 2026-10-12: a testing aid for his
@@ -431,7 +451,7 @@ def collect(deck_path, out_dir=None, emit=lambda ev: None) -> dict:
                 src, from_cc, *kind = have[(w, st)]
                 if kind:                            # variable font: one link per file, not per weight
                     name = f"{base}{' Italic' if 'italic' in Path(src).name.lower() else ''} (variable)"
-                dest = folder / f"{name}{Path(src).suffix.lower() or '.otf'}"
+                dest = folder / safe_filename(f"{name}{Path(src).suffix.lower() or '.otf'}")
                 if dest.is_symlink() or dest.exists():
                     dest.unlink()
                 shutil.copyfile(src, dest)
@@ -450,7 +470,7 @@ def collect(deck_path, out_dir=None, emit=lambda ev: None) -> dict:
             if got["data"] is None:
                 report.append((name, "not available", got["problem"]))
                 continue
-            dest = folder / f"{name}.ttf"
+            dest = folder / safe_filename(f"{name}.ttf")
             dest.write_bytes(got["data"])
             report.append((name, f"downloaded ({entry.get('publisher') or entry.get('source')})", str(dest)))
     lines = [f"Fonts for {deck_path.name} (collected {time.strftime('%Y-%m-%d %H:%M')} by SlideTistic)", ""]

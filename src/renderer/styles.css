@@ -30,7 +30,7 @@ kbd { font: 11px ui-monospace, Menlo, monospace; background: var(--surface-2); b
 .btn:active { transform: scale(.97); }
 .btn.p { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .btn.p:hover { filter: brightness(1.08); }
-.btn[disabled] { opacity: .45; cursor: default; transform: none; }
+.btn[disabled], .btn.off { opacity: .45; cursor: default; transform: none; }
 .icon { background: none; border: none; color: var(--dim); font-size: 15px; padding: 2px 6px; }
 .icon:hover { color: var(--text); }
 .note { color: var(--dim); font-size: 12px; font-weight: 400; }
@@ -89,8 +89,6 @@ kbd { font: 11px ui-monospace, Menlo, monospace; background: var(--surface-2); b
 .busy-bar { height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
 .busy-bar i { display: block; height: 100%; background: var(--accent); width: 30%; animation: slide 1.4s ease-in-out infinite; }
 .busy-bar i.known { animation: none; margin: 0; transition: width .3s; }
-.source { background: var(--accent-dim); border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 12px; }
-.source b { color: var(--accent); letter-spacing: .06em; } .source small { display: block; color: var(--dim); margin-top: 2px; }
 .alert { background: rgba(255, 90, 95, .12); border: 1px solid var(--red); border-radius: var(--radius); padding: 10px 12px; font-weight: 600; }
 .alert a { color: var(--red); }
 .saved { color: var(--dim); font-size: 12px; } .saved b { color: var(--text); font-weight: 600; } .saved a { color: var(--accent); cursor: pointer; }
@@ -208,17 +206,6 @@ tr.jump { cursor: pointer; } tr.jump:hover td { background: var(--surface); }
 .chip.media.b { color: var(--blue); border-color: var(--blue); }
 .chip.media.y { color: var(--amber); border-color: var(--amber); }
 .chip.media.r { color: var(--red); border-color: var(--red); }
-.media-banner { display: flex; align-items: flex-start; gap: 12px; border-radius: var(--radius); padding: 10px 12px; border: 1px solid; }
-.media-banner[hidden] { display: none; }
-.media-banner > .spk { width: 26px; height: 26px; margin-top: 2px; }
-.media-banner .mb-body { flex: 1; min-width: 0; }
-.media-banner b { display: block; margin-bottom: 2px; }
-.media-banner .mb-issue { font-weight: 600; } .media-banner .mb-issue.r { color: var(--red); } .media-banner .mb-issue.y { color: var(--amber); }
-.media-banner .mb-inv { color: var(--dim); font-size: 12px; margin-top: 2px; }
-.media-banner a { color: inherit; text-decoration: underline; cursor: pointer; }
-.media-banner.b { background: rgba(91, 155, 255, .10); border-color: var(--blue); } .media-banner.b > .spk, .media-banner.b b { color: var(--blue); }
-.media-banner.y { background: rgba(255, 181, 71, .10); border-color: var(--amber); } .media-banner.y > .spk, .media-banner.y b { color: var(--amber); }
-.media-banner.r { background: rgba(255, 90, 95, .12); border-color: var(--red); } .media-banner.r > .spk, .media-banner.r b { color: var(--red); }
 tr.hl td { background: var(--accent-dim); }
 
 /* ▶ VIDEO badge over each clip in the review (media under the finding boxes, never blocking their tips) */
@@ -233,15 +220,7 @@ tr.hl td { background: var(--accent-dim); }
 @media (prefers-reduced-motion: reduce) { .note.pending::before { animation: none; } }
 
 /* compression pitch (blue = info; accent outline when switched on; green once done) */
-.compress-banner { display: flex; align-items: center; gap: 14px; border: 1px solid var(--blue); background: rgba(91, 155, 255, .08);
   border-radius: var(--radius); padding: 10px 12px; }
-.compress-banner[hidden] { display: none; }
-.compress-banner > div { flex: 1; min-width: 0; }
-.compress-banner b { display: block; color: var(--blue); }
-.compress-banner small { display: block; color: var(--dim); margin-top: 2px; }
-.compress-banner.on { border-color: var(--accent); background: var(--accent-dim); } .compress-banner.on b { color: var(--accent); }
-.compress-banner.done { border-color: var(--green); background: rgba(52, 211, 153, .08); } .compress-banner.done b { color: var(--green); margin-right: 8px; display: inline; }
-.compress-banner .switch { white-space: nowrap; font-weight: 600; cursor: pointer; display: flex; gap: 6px; align-items: center; }
 
 /* tuning votes (David 2026-10-11) */
 .tuning-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 12px; border: 1px solid var(--accent);
@@ -286,10 +265,61 @@ details.notes > summary small { font-weight: 400; }
 /* fonts tab (David 2026-10-12) */
 tr.faint td { opacity: .6; }
 .confirm { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.media-banner > .btn { align-self: center; }
 .ext { color: var(--accent); cursor: pointer; white-space: nowrap; }
 .update-bar { width: 140px; height: 4px; background: rgba(6, 24, 47, .25); border-radius: 2px; overflow: hidden; }
 .update-bar > i { display: block; height: 100%; width: 0; background: #06182F; transition: width .3s; }
 #update-text { flex: 1; }
 .companion { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .companion .note { flex: 1; }
+
+/* Action banners (2026-10-13): one line per alert with the action that resolves it; green and small once done. */
+.actions { display: flex; flex-direction: column; gap: 6px; }
+.actions:empty { display: none; }
+.abn { display: flex; align-items: center; gap: 10px; border: 1px solid; border-radius: 8px; padding: 6px 10px; }
+.abn .ic { width: 22px; flex: none; text-align: center; font-size: 15px; font-weight: 700; }
+.abn .ic .spk { width: 16px; height: 16px; }
+.abn .msg { flex: 1; min-width: 0; } .abn .msg b { font-weight: 600; }
+.abn .msg a { color: inherit; text-decoration: underline; cursor: pointer; }
+.abn .dim { color: var(--dim); }
+.abn .btn.sm { padding: 3px 9px; font-size: 12px; }
+.abn .icon { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+.abn.r { background: rgba(255, 90, 95, .10); border-color: rgba(255, 90, 95, .7); } .abn.r .ic { color: var(--red); }
+.abn.y { background: rgba(255, 181, 71, .08); border-color: rgba(255, 181, 71, .7); } .abn.y .ic { color: var(--amber); }
+.abn.n { background: var(--surface); border-color: var(--border); color: var(--dim); } .abn.n .ic { color: var(--blue); }
+.abn.done { background: rgba(52, 211, 153, .10); border-color: rgba(52, 211, 153, .7); } .abn.done .ic { color: var(--green); }
+.abn.small { padding: 2px 10px; font-size: 12px; cursor: help; } .abn.small .ic { font-size: 12px; }
+/* Where the deck came from: a chip after the counts, the joke and the reasons on hover. */
+.src { position: relative; align-self: center; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px dashed var(--accent);
+       color: var(--accent); cursor: help; white-space: nowrap; }
+.src .tip { display: none; position: absolute; top: 22px; left: 0; width: 340px; z-index: 20; background: var(--surface-2);
+            border: 1px solid var(--border); border-radius: 8px; padding: 10px; color: var(--text); font-size: 12px; white-space: normal; }
+.src .tip b { color: var(--accent); letter-spacing: .04em; } .src .tip .dim { display: block; color: var(--dim); margin-top: 4px; }
+.src:hover .tip, .src:focus .tip { display: block; }
+.compress-modal { width: min(500px, 92vw); } .compress-modal > b { font-size: 15px; }
+.compress-modal p { margin: 6px 0 12px; font-size: 12px; }
+.cm-row { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--border); cursor: pointer; }
+.cm-row .dim { margin-left: auto; color: var(--dim); font-size: 12px; }
+.cm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.res-title .chips { display: inline-flex; vertical-align: middle; } .res-title .src { display: inline-block; margin-left: 8px; vertical-align: middle; }
+/* Full-screen viewer: the slide's findings in words, under the picture (2.3). */
+.viewer-findings { max-height: 22vh; overflow-y: auto; padding: 6px 16px 0; }
+.viewer-findings ul { list-style: none; margin: 0 auto; padding: 0; max-width: 1400px; display: flex; flex-direction: column; gap: 3px; }
+.viewer-findings li { display: flex; gap: 8px; font-size: 13px; } .viewer-findings .fi { width: 14px; flex: none; font-weight: 700; }
+.viewer-findings li.r .fi { color: var(--red); } .viewer-findings li.y .fi { color: var(--amber); } .viewer-findings li.g .fi { color: var(--green); }
+.viewer-findings small { display: block; color: var(--dim); font-size: 11px; }
+#viewer-title .sev { margin-right: 6px; vertical-align: 1px; }
+.queue-empty { color: var(--dim); font-size: 12px; padding: 10px 4px; line-height: 1.5; }
+/* Narrow windows (2.11): a laptop beside PowerPoint. The queue narrows, the shortcut hint goes (? still opens
+   the list), alert buttons drop under their text, and before/after stack below ~900 px. */
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .top .hint { display: none; }
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 170px minmax(0, 1fr); }
+  .pair { grid-template-columns: 1fr; }
+  .abn { gap: 8px; font-size: 12px; } .abn .btn.sm { padding: 3px 7px; }
+  .side-foot .btn { white-space: normal; font-size: 12px; }
+  .res-actions { flex-wrap: wrap; }
+  .card .chips { gap: 3px; }
+}

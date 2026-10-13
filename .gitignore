@@ -29,3 +29,6 @@ vendor/
 
 # Release secrets template (filled in locally, never committed)
 *.local.txt
+
+# Internal reviews (may describe unfixed security issues; repo is public)
+docs/REVIEW_*.md

@@ -5,6 +5,9 @@ microsoft_aptos:
   publisher: Microsoft
   url: https://download.microsoft.com/download/8/6/0/860a94fa-7feb-44ef-ac79-c072d9113d69/Microsoft%20Aptos%20Fonts.zip
   page: https://www.microsoft.com/en-us/download/details.aspx?id=106087
+  # SHA-256 of the zip as checked 2026-10-13 (2,979,784 bytes, 28 fonts + EULA). If Microsoft changes the file,
+  # downloads stop with a message until someone checks the new one and updates this.
+  sha256: 6528fd120e719a9f985e94214eca6887d1653b88456916a792a630b02e95b025
   license: Microsoft Aptos Fonts EULA (free download from Microsoft)
   families:
     Aptos: {weights: [300, 400, 600, 700, 800, 900], styles: [normal, italic]}

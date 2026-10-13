@@ -107,10 +107,18 @@
       "provider": "github",
       "owner": "Horton619",
       "repo": "slidetistic"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
     }
   },
   "devDependencies": {
-    "electron": "^32.3.3",
+    "electron": "^44.4.5",
     "electron-builder": "^26.0.0"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -13,7 +14,24 @@ from .core.findings import Status
 ICON = {Status.GREEN_FIXED: "✓", Status.YELLOW: "!", Status.RED: "✕", Status.TOOL_ERROR: "?"}
 
 
+def _emitter(json_mode: bool):
+    """One JSON line per event (--json). Renderer heartbeats and busy marks reach the same stream."""
+    from .core import events
+    events.set_sink((lambda e: print(json.dumps(e, default=str), flush=True)) if json_mode else None)
+    return events.emit
+
+
 def main(argv=None) -> int:
+    from .core import events
+    events.install_stop_handler()
+    try:
+        return _main(argv)
+    except SystemExit:
+        runner.cleanup()        # stopped by the app: don't leave work folders behind
+        raise
+
+
+def _main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="slidetistic")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -37,6 +55,9 @@ def main(argv=None) -> int:
         sp.add_argument("--review-dir", help="write the app's review bundle (review.json + slide images) here")
         sp.add_argument("--powerpoint-visible", action="store_true",
                         help="Mac: don't hide PowerPoint while it renders (default: hidden when SlideTistic starts it)")
+        sp.add_argument("--partial-export", choices=("off", "check", "on"), default="off",
+                        help="fit rounds 2+: export only the slides the last round changed (slow decks; 'check' "
+                             "also exports the whole deck and reports any difference)")
         sp.add_argument("--shape-cache", choices=("on", "off", "check"),
                         help="remember shape lists between edits (default on; 'check' verifies every reuse)")
         if name == "repair":
@@ -56,6 +77,11 @@ def main(argv=None) -> int:
     cl.add_argument("--all", action="store_true", help="every leftover, not just ones over 6 hours old")
     cl.add_argument("--json", action="store_true")
 
+    op = sub.add_parser("open-at-slide", help="Mac: open a deck in PowerPoint at a slide (waits for any export)")
+    op.add_argument("file")
+    op.add_argument("--slide", type=int, default=1)
+    op.add_argument("--json", action="store_true")
+
     fn = sub.add_parser("fonts", help="free fonts (F009): catalog, get, installed, uninstall")
     fsub = fn.add_subparsers(dest="fonts_cmd", required=True)
     fc = fsub.add_parser("catalog", help="update the free-font list if it's a week old (--refresh: now)")
@@ -70,6 +96,12 @@ def main(argv=None) -> int:
     fl.add_argument("file")
     fl.add_argument("--out", help="folder (default: '<deck> - fonts' next to the deck)")
     fl.add_argument("--json", action="store_true")
+    fa = fsub.add_parser("adobe", help="which of these families Adobe Fonts has (Creative Cloud activation)")
+    fa.add_argument("--family", action="append", required=True)
+    fa.add_argument("--json", action="store_true")
+    fh = fsub.add_parser("here", help="is each family on this computer now (installed, or via Creative Cloud)")
+    fh.add_argument("--family", action="append", required=True)
+    fh.add_argument("--json", action="store_true")
     fi = fsub.add_parser("installed", help="fonts SlideTistic installed")
     fi.add_argument("--json", action="store_true")
     fu = fsub.add_parser("uninstall", help="remove fonts SlideTistic installed")
@@ -110,6 +142,11 @@ def main(argv=None) -> int:
     if args.cmd == "tune":
         from . import tune
         return tune.main(args)
+    if args.cmd == "open-at-slide":
+        from .render import open_at_slide
+        problem = open_at_slide(Path(args.file), args.slide)
+        print(json.dumps({"type": "opened", "ok": not problem, "error": problem}) if args.json else (problem or "Opened"))
+        return 1 if problem else 0
     if args.cmd == "cleanup":
         from .keynote import purge_cache
         from .render import purge_leftovers
@@ -118,7 +155,7 @@ def main(argv=None) -> int:
         return 0
 
     path = Path(args.file)
-    emit = (lambda e: print(json.dumps(e, default=str), flush=True)) if args.json else (lambda e: None)
+    emit = _emitter(args.json)
     converted_from = None
     if path.suffix.lower() == ".key" and args.cmd in ("scan", "repair", "media"):
         # Keynote: Keynote itself exports a .pptx (Mac only), then everything below runs on that.
@@ -156,10 +193,11 @@ def main(argv=None) -> int:
                      and (not getattr(args, "no_report", False) or args.review_dir))),
         prefit_path=Path(args.review_dir) / "prefit.pptx" if args.review_dir and args.cmd == "repair" else None,
         overrides=_overrides(args.set),
+        partial_export=args.partial_export,
     )
     if args.review_dir:
         Path(args.review_dir).mkdir(parents=True, exist_ok=True)
-    emit = (lambda e: print(json.dumps(e, default=str), flush=True)) if args.json else (lambda e: None)
+    emit = _emitter(args.json)
 
     try:
         if args.cmd == "scan":
@@ -179,7 +217,8 @@ def main(argv=None) -> int:
         report = _write_report(result, checks, config, args, emit)
     finally:
         runner.cleanup()
-    from .render import MacPowerPointRenderer
+    from .render import STATS, MacPowerPointRenderer
+    emit({"type": "timing", **{k: round(v, 2) for k, v in STATS.items()}})
     if MacPowerPointRenderer.force_quit_note:
         emit({"type": "warn", "message": MacPowerPointRenderer.force_quit_note})
     if not args.json:
@@ -216,7 +255,7 @@ def _write_report(result, checks, config, args, emit) -> Path | None:
             try:
                 visuals = visual.plan(result, result.input_path, result.output_path)
                 visual.render(visuals, result.input_path, result.output_path, renderer, image_dir=review_dir)
-            except (RenderError, OSError) as e:
+            except (RenderError, OSError, subprocess.SubprocessError) as e:
                 visuals, note = None, f"Visual review skipped: {e}"
             finally:
                 if renderer is not shared:
@@ -257,7 +296,7 @@ def _undo_slide(path: Path, args) -> int:
     from .core import Deck
     from .core.content import is_hidden
     from .render import PowerPointRenderer, RenderError
-    emit = (lambda e: print(_json.dumps(e, default=str), flush=True)) if args.json else (lambda e: None)
+    emit = _emitter(args.json)
     mended, prefit = Deck(path), Deck(args.prefit)
     n = args.slide
     if not 1 <= n <= len(mended.slides) or len(prefit.slides) != len(mended.slides):
@@ -277,7 +316,7 @@ def _undo_slide(path: Path, args) -> int:
             page = sum(1 for s in mended.slides[:n] if not is_hidden(s))
             image = f"slide-{n}-after.jpg"
             (review_dir / image).write_bytes(renderer.page_image(renderer.to_pdf(path, "undo"), page))
-        except (RenderError, OSError) as e:
+        except (RenderError, OSError, subprocess.SubprocessError) as e:
             emit({"type": "warn", "message": f"Slide {n} was undone, but its picture couldn't be refreshed: {e}"})
             image = None
         finally:
@@ -333,9 +372,19 @@ def unreadable_reason(path: Path) -> str | None:
     if not zipfile.is_zipfile(path):
         return f"{path.name} isn't a valid PowerPoint file (it may be damaged, an old .ppt renamed, or still downloading)."
     with zipfile.ZipFile(path) as z:
-        if "[Content_Types].xml" not in z.namelist():
+        infos = z.infolist()
+        if "[Content_Types].xml" not in {i.filename for i in infos}:
             return f"{path.name} isn't a valid PowerPoint file (it may be damaged)."
+        # A "zip bomb" (tiny file, enormous inside) would fill memory: python-pptx reads every XML part.
+        # Real decks' XML parts are a few MB; media is stored, not expanded, so it's counted separately.
+        if any(i.filename.endswith((".xml", ".rels")) and i.file_size > XML_PART_MAX for i in infos) \
+                or sum(i.file_size for i in infos) > DECK_UNPACKED_MAX:
+            return f"{path.name} unpacks to an implausible size; it may be damaged or crafted. Not opened."
     return None
+
+
+XML_PART_MAX = 256 * 1024 * 1024
+DECK_UNPACKED_MAX = 32 * 1024 ** 3
 
 
 def _overrides(pairs: list[str]) -> dict:
@@ -393,6 +442,20 @@ def _fonts(args, checks) -> int:
         for f in res["fonts"]:
             out({"type": "font", **f, "message": f"{f['name']}: {f['how']}"})
         out({"type": "done", "folder": res["folder"], "message": f"Fonts collected in {res['folder']}"})
+        return 0
+    if args.fonts_cmd == "adobe":
+        from .core import adobe_fonts
+        for fam, info in adobe_fonts.lookup(args.family).items():
+            out({"type": "adobe", "family": fam, "info": info, "search": adobe_fonts.search_link(fam),
+                 "message": f"{fam}: {info['link'] if info else 'not on Adobe Fonts'}"})
+        return 0
+    if args.fonts_cmd == "here":
+        from .core import adobe_fonts
+        have = fonts_install.installed()
+        for fam in args.family:
+            keys = {fam.casefold(), adobe_fonts.base_family(fam).casefold()}
+            where = ("creative_cloud" if keys & have["creative_cloud"] else "installed" if keys & have["families"] else None)
+            out({"type": "here", "family": fam, "here": where, "message": f"{fam}: {where or 'not on this computer'}"})
         return 0
     if args.fonts_cmd == "installed":
         for e in fonts_install._log():

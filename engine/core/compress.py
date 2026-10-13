@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from pptx.oxml.ns import qn
 from PIL import Image
 
-Image.MAX_IMAGE_PIXELS = None        # real decks hold 95-megapixel photos (see images.py)
+Image.MAX_IMAGE_PIXELS = 200_000_000     # real decks hold 95-megapixel photos (see images.py)
+DECODE_MAX_PIXELS = 150_000_000          # compressing decodes the whole picture: ~600 MB at this size
 
 KINDS = {"image/jpeg": "JPEG", "image/png": "PNG"}
 R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
@@ -94,6 +95,8 @@ def plans(deck, target_w: int) -> list[Plan]:
             with Image.open(io.BytesIO(part.blob)) as im:
                 w, h = im.size
                 if fmt == "PNG" and getattr(im, "is_animated", False):
+                    continue
+                if w * h > DECODE_MAX_PIXELS:
                     continue
         except Exception:  # noqa: BLE001 — unreadable image: leave it
             continue

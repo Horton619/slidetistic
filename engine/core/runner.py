@@ -28,6 +28,7 @@ class RunConfig:
     layout: bool = False             # judge text as PowerPoint draws it (needs PowerPoint; slower)
     prefit_path: Path | None = None  # repair saves the deck here just before layout fixes (for per-slide undo)
     overrides: dict = field(default_factory=dict)   # threshold overrides from the app's Settings
+    partial_export: str = "off"      # fit rounds 2+: export only changed slides ("off" | "check" | "on"), see _fit_pass
 
     def check_on(self, c: type[Check]) -> bool:
         return c.id in self.checks if self.checks is not None else c.default_check
@@ -122,6 +123,10 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
     out_of_time = False
     dirty: set[int] | None = None           # rounds 2+: the slides the previous round changed
     seen_all: dict[int, set] = {}           # latest layout problems per slide (unchanged slides keep theirs)
+    from .content import is_hidden
+    visible = sum(1 for s in deck.slides if not is_hidden(s))
+    prev_layout = None
+    export_times: list[tuple[int, float, int]] = []     # (round, export seconds, slides changed)
     from ..render import RenderError
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,7 +135,9 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                 emit({"type": "progress", "stage": "fit", "round": rnd, "rounds": rounds})
                 work = Path(tmp) / f"round{rnd}.pptx"
                 deck.save(work, render_copy=True)
-                layout = PdfLayout(deck, _RENDERER, path=work)
+                partial = _partial_ok(config, ctx, dirty, prev_layout, visible)
+                layout = PdfLayout(deck, _RENDERER, path=work, only=dirty if partial else None,
+                                   base=prev_layout if partial else None, check=config.partial_export == "check")
                 prefit = prefit or layout
                 rctx = replace(ctx, layout=layout, only_slides=frozenset(dirty) if dirty is not None else None)
                 touched, did = set(), False
@@ -187,6 +194,8 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                             attempts.setdefault(key, []).append((seq, shape_before, edits.changes[n:]))
                 for n in (dirty if dirty is not None else range(1, len(deck.slides) + 1)):
                     seen_all[n] = seen.get(n, set())
+                _partial_report(layout, rnd, dirty, visible, partial, export_times, emit)
+                prev_layout = layout
                 if not did:
                     settled = (layout, {n: p for n, p in seen_all.items() if p})
                     break
@@ -196,6 +205,7 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                 dirty = set(touched)
             else:
                 settled = None
+            _partial_hint(config, ctx, export_times, visible, emit)
             if len(edits.changes) == first_change or prefit is None:
                 return
             emit({"type": "progress", "stage": "safety"})
@@ -226,16 +236,65 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                     # nothing isn't worth a review box; put the slide back without a word.
                     _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None)
 
-    except RenderError as e:
-        # PowerPoint failed partway (on Windows: stopped responding). Nothing after this point was
-        # checked by a render, so every layout change goes back; the other fixes stand.
-        emit({"type": "warn", "message": f"Layout fixes skipped: {e}"})
+    except Exception as e:  # noqa: BLE001
+        # PowerPoint failed partway (on Windows: stopped responding), or the fit pass itself broke (a
+        # parse error, a bug). Nothing after this point was checked by a render, so every layout change
+        # goes back; the other fixes stand. Only PowerPoint's own failures are "skipped"; anything else
+        # is a tool_error so it gets noticed.
+        if isinstance(e, RenderError):
+            emit({"type": "warn", "message": f"Layout fixes skipped: {e}"})
+        else:
+            emit({"type": "warn", "message": f"Layout fixes were undone: the fitting step failed ({type(e).__name__}: {e})"})
+            errors.append(Finding("L000", Status.TOOL_ERROR, f"Layout fixing failed and was undone: {type(e).__name__}: {e}",
+                                  evidence={"exception": type(e).__name__}))
         fit_changes = [c for c in edits.changes[first_change:] if c.check_id in fit_ids]
         changed = {c.slide for c in fit_changes if c.slide} | {
             n for n, slide in enumerate(deck.slides, 1) if any(c.part == str(slide.part.partname) for c in fit_changes)}
         for n in sorted(changed):
             _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None,
                           why=f"PowerPoint stopped before this fix could be checked ({e}), so the slide was left as it was")
+
+
+def _partial_ok(config, ctx, dirty, prev_layout, visible) -> bool:
+    """Export only the changed slides this round? Opt-in, rounds 2+, and only when the first export was slow
+    and few slides changed (David 2026-10-13: big decks are big from media, which stand-ins already shrink)."""
+    if config.partial_export == "off" or dirty is None or prev_layout is None or not visible:
+        return False
+    first = prev_layout
+    while first.base is not None:
+        first = first.base
+    slow = (first.export_s or 0) >= float(ctx.thresholds.get("partial_export_min_export_s", 20))
+    few = len(dirty) <= visible * float(ctx.thresholds.get("partial_export_max_changed_pct", 25)) / 100
+    return slow and few
+
+
+def _partial_report(layout, rnd, dirty, visible, partial, export_times, emit) -> None:
+    changed = len(dirty) if dirty is not None else visible
+    export_times.append((rnd, layout.export_s or 0.0, changed))
+    if partial and layout.partial_mismatch is not None:
+        emit({"type": "partial_export", "round": rnd, "changed": sorted(dirty), "mismatch": layout.partial_mismatch})
+        if layout.partial_mismatch:
+            emit({"type": "warn", "message": f"Changed-slide export (check mode) disagreed with the full export on "
+                                             f"slide(s) {', '.join(map(str, layout.partial_mismatch))}; the full "
+                                             "export was used. Tell David."})
+
+
+def _partial_hint(config, ctx, export_times, visible, emit) -> None:
+    """Changed-slide export is off: say how much it would have saved on this repair, when that's a lot. Every
+    round after the first drew the whole deck; drawing only its changed slides costs about their share."""
+    if config.partial_export != "off" or len(export_times) < 2 or not visible:
+        return
+    first_s = export_times[0][1]
+    if first_s < float(ctx.thresholds.get("partial_export_min_export_s", 20)):
+        return
+    # Every export also pays a fixed start-up (opening the copy, PDF setup): ~3 s measured on CLARB MASTER, where
+    # the plain per-slide share said 38 s and the real saving was 22 s (2026-10-13).
+    fixed = float(ctx.thresholds.get("partial_export_overhead_s", 3))
+    per_slide = max(0.0, first_s - fixed) / visible
+    saving = sum(max(0.0, s - fixed - per_slide * changed) for _, s, changed in export_times[1:])
+    if saving >= float(ctx.thresholds.get("partial_export_hint_min_saving_s", 30)):
+        emit({"type": "partial_export_hint", "seconds": round(saving), "first_export_s": round(first_s, 1),
+              "rounds": len(export_times)})
 
 
 def _give_up_box(deck, edits, attempts: dict, key: tuple) -> None:
@@ -296,8 +355,17 @@ def _health(deck, layout, n, ctx) -> _Health:
     slide_layout = layout.slide(n)
     W, H, tol = deck.slide_width, deck.slide_height, 12700
     h = _Health()
+    # Letters, not boxes (review 2026-10-13, 1.6): the same rules as L008/L010. A line box past an edge
+    # counts only if the picture shows letters touching that edge; two colliding lines count only if the
+    # picture doesn't show a clean row between them. Without a picture, the boxes decide (as before).
+    cut_off = getattr(layout, "cut_off", None)
+    apart = getattr(layout, "letters_apart", None)
     for st in slide_layout.values():
-        h.off += sum(1 for l in st.lines if l.left < -tol or l.top < -tol or l.right > W + tol or l.bottom > H + tol)
+        for l in st.lines:
+            edges = [e for e, out in (("left", l.left < -tol), ("top", l.top < -tol), ("right", l.right > W + tol),
+                                      ("bottom", l.bottom > H + tol)) if out]
+            if edges and (cut_off is None or any(cut_off(n, l, e) is not False for e in edges)):
+                h.off += 1
     # Words PowerPoint didn't draw at all count too: Mac PowerPoint leaves text that's fully off the
     # slide out of the PDF, so a box shoved off the slide (or shrunk to nothing) has no lines to count
     # (app run 2026-10-11: every lower-thirds slide lost its text and the old count saw nothing wrong).
@@ -311,7 +379,8 @@ def _health(deck, layout, n, ctx) -> _Health:
     items = [st for st in slide_layout.values() if st.lines]
     for i, a in enumerate(items):
         for b in items[i + 1:]:
-            if any(fit.lines_collide(la, lb, 2 * 12700) for la in a.lines for lb in b.lines):
+            if any(fit.lines_collide(la, lb, 2 * 12700) and not (apart and apart(n, la, lb))
+                   for la in a.lines for lb in b.lines):
                 h.collisions += 1
     shapes = deck.slide_shapes(n)
     z = {sv.shape_id: i for i, sv in enumerate(shapes)}
@@ -456,7 +525,9 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
                                       subject=f.subject, evidence={"exception": type(e).__name__}))
 
     if config.prefit_path:
-        deck.save(config.prefit_path)
+        # Media as stand-ins: undo-slide only copies slide XML from it, and a 500 MB deck's review bundle
+        # shouldn't hold a second 500 MB copy (review 2026-10-13).
+        deck.save(config.prefit_path, render_copy=True)
     if fitters:
         _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit)
 
@@ -464,6 +535,13 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
     if target.resolve() == path.resolve():
         raise ValueError("Refusing to overwrite the input file")
     out = deck.save(target)
+    from . import invariants
+    for problem in invariants.broken(path, out):
+        # Never expected: a fix went wrong. Said loudly (a tool_error) rather than handing over a deck that lost
+        # a word or a shape.
+        errors.append(Finding("X000", Status.TOOL_ERROR, f"Repair broke a promise: {problem}. Check this deck by "
+                              "hand and tell David.", evidence={"invariant": problem}))
+        emit({"type": "warn", "message": f"Repair check failed: {problem}"})
     emit({"type": "progress", "stage": "rescan"})
     after, clean = detect_all(Deck(out), checks, config, ctx)
 

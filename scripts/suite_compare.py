@@ -69,6 +69,56 @@ def secs(d: dict, step: str) -> str:
     return "—" if not s else ("TIMEOUT" if s.get("timed_out") else f"{s.get('seconds', 0):.0f}s")
 
 
+PIXEL_DIFF = 40          # grey levels: JPEG noise and anti-aliasing stay under it
+VISUAL_MIN_PCT = 0.5     # share of a slide's pixels that must change to be listed
+
+
+def visual_diff(a_dir: Path, b_dir: Path, both: list[str], da: dict, out_dir: Path, A: str, B: str) -> list[str]:
+    """Runs made with --images: the same slide picture from each side, pixel by pixel (review 2026-10-13, 3.5).
+    Lists slides that look different and writes a side-by-side (A | B | changed pixels in red) for each."""
+    from PIL import Image, ImageChops
+    rows = []
+    for h in both:
+        key = h[:12]
+        ia, ib = a_dir / "images" / key, b_dir / "images" / key
+        if not ia.is_dir() or not ib.is_dir():
+            continue
+        for fa in sorted(ia.glob("*.jpg")):
+            fb = ib / fa.name
+            if not fb.exists():
+                continue
+            ga, gb = Image.open(fa).convert("L"), Image.open(fb).convert("L")
+            if gb.size != ga.size:
+                gb = gb.resize(ga.size)
+            mask = ImageChops.difference(ga, gb).point(lambda v: 255 if v > PIXEL_DIFF else 0)
+            pct = 100 * mask.histogram()[255] / (ga.size[0] * ga.size[1])
+            if pct >= VISUAL_MIN_PCT:
+                rows.append((pct, da[h]["deck"], fa.name, fa, fb, mask))
+    if not rows:
+        return ["", "## Rendered slides", "", "No slide picture differs by more than "
+                f"{VISUAL_MIN_PCT}% of its pixels." if any((a_dir / "images").glob("*")) and any((b_dir / "images").glob("*"))
+                else "_Not compared: run both sides with --images._"]
+    rows.sort(key=lambda r: -r[0])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines = ["", "## Rendered slides", "", f"Slides whose pictures differ by {VISUAL_MIN_PCT}%+ of their pixels "
+             f"(left {A}, middle {B}, right: changed pixels).", "", "| Deck | Picture | Changed | Side by side |",
+             "| --- | --- | --- | --- |"]
+    for i, (pct, deck, name, fa, fb, mask) in enumerate(rows):
+        link = ""
+        if i < 40:
+            a, b = Image.open(fa).convert("RGB"), Image.open(fb).convert("RGB").resize(Image.open(fa).size)
+            red = Image.new("RGB", a.size, (255, 60, 60))
+            marked = Image.composite(red, a.point(lambda v: v // 3), mask)
+            sheet = Image.new("RGB", (a.size[0] * 3 + 20, a.size[1]), (20, 20, 30))
+            for j, im in enumerate((a, b, marked)):
+                sheet.paste(im, (j * (a.size[0] + 10), 0))
+            fname = f"{i + 1:02d}-{Path(deck).stem[:40]}-{name}".replace(" ", "_")
+            sheet.save(out_dir / fname, quality=80)
+            link = f"[view]({out_dir.name}/{fname})"
+        lines.append(f"| {deck} | {name} | {pct:.1f}% | {link} |")
+    return lines
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("run_a")
@@ -125,6 +175,10 @@ def main():
                     problems.append(f"**{side}: {s['summary']['tool_error']} crashed check(s) in {step}**")
             if d.get("second_repair_changes"):
                 msg = f"{side}: second repair still changed {d['second_repair_changes']} things"
+                listed = d.get("second_repair_list") or []
+                if listed:
+                    msg += " (" + "; ".join(f"slide {c.get('slide')} {c.get('check_id')} {c.get('shape_name') or ''} "
+                                            f"{c.get('prop')}" for c in listed[:5]) + ("…" if len(listed) > 5 else "") + ")"
                 if layout:      # known open issue (docs/EDGE_CASES.md: layout fixes don't settle in one repair)
                     notes.append(msg + " (known open: layout fixes don't settle in one repair)")
                 else:
@@ -180,6 +234,7 @@ def main():
     out += ["", "## Differences"] + (sections or ["", "None."])
     dest = a_dir.parent.parent / "_compare" / f"{ra['run']}__{rb['run']}.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
+    out += visual_diff(a_dir, b_dir, both, da, dest.with_suffix(""), A, B)
     dest.write_text("\n".join(out) + "\n", encoding="utf-8")
     print(dest)
 

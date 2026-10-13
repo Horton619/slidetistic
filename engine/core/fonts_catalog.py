@@ -94,7 +94,7 @@ def publisher_fonts() -> dict:
         for fam, spec in (pkg.get("families") or {}).items():
             out[fam.casefold()] = {"id": f"{key}:{fam}", "family": fam, "type": "publisher", "source": key,
                                    "publisher": pkg.get("publisher"), "url": pkg["url"], "page": pkg.get("page"),
-                                   "license": pkg.get("license"), "weights": spec.get("weights", [400]),
+                                   "license": pkg.get("license"), "sha256": pkg.get("sha256"), "weights": spec.get("weights", [400]),
                                    "styles": spec.get("styles", ["normal"])}
     return out
 

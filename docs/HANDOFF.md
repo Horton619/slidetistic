@@ -19,6 +19,32 @@ suite protocol. The Dropbox suite's `_mailbox/` holds notes between the Mac and 
   Windows PC (Ryzen 7 2700X, PowerPoint 16). Each runs its own Claude Code session; they talk through git and the
   Dropbox suite `_mailbox/`.
 
+## 2a. Upgrade plan (2026-10-13)
+
+A five-angle codebase review (measurement, testing, stability, security, UX) produced a three-phase plan that David
+picked from: Phase 1 bugs and safety, Phase 2 UX (action banners, guided Adobe Fonts activation), Phase 3 time
+savings and results. The full scope and reasoning are in `docs/REVIEW_2026-10-13.md`. That file is local and
+git-ignored because it describes unfixed security issues. If it's missing on this machine, ask David or the Mac
+session. Mockup: `docs/mockups/status-strip.html`.
+
+**Built 2026-10-13 (uncommitted until David reviews):** all of Phase 1 picked (1.1–1.9, 1.11, 1.13), Phase 2 (2.1 action
+banners + Adobe Fonts lookup + guided activation, 2.2, 2.3, 2.4, 2.5, 2.7, 2.8, 2.11), and from Phase 3: 3.1 CI,
+3.2 persistent render cache (`engine/render_cache.py`), 3.3 replay renderer + one recorded Mac layout repair
+(`tests/test_replay_repair.py`), 3.4 repair invariants (`engine/core/invariants.py`, X000 tool_error) + the suite
+records which second-repair changes happen, 3.5 visual diff in `suite_compare` (runs made with `--images`), 3.8 timing
+event (measured: deck parsing ~0.1 s, so re-reading decks isn't worth changing; time is in exports), 3.10
+changed-slide export (opt-in, Diagnostics; check mode agreed on CLARB MASTER, 49.7 s vs 71.5 s).
+Not built: 3.7 pypdfium2 glyph boxes, 3.9 candidate verification (both bigger; `engine/core/partial.py` makes 3.9's
+"export a small deck of candidates" easy), 3.11 (PC). Notes:
+- Electron 32 → 44.4.5 (runs on macOS 26, packaged ad-hoc build with fuses launches). Dev install still needs the
+  manual zip unpack (memory: reference-electron-dev-install).
+- Renderer IPC only accepts paths main handed out (`known()`); deck ids validated; settings whitelisted by DEFAULTS.
+- Windows parts untested here: AutomationSecurity force-disable around `Presentations.Open` (render.py), Ctrl labels.
+- Autofit: fit fixes refuse width/font/spacing changes only on boxes PowerPoint is actively shrinking
+  (`normAutofit` with fontScale/lnSpcReduction; 66 suite boxes). Moves still allowed.
+- `pytest -m corpus` snapshots are from the old Oct 9 corpus: every suite deck reports "no snapshot yet". Use the
+  suite run + compare until the snapshots are re-made (needs David's OK for `--update-snapshots`).
+
 ## 2. What David wants next (2026-10-12)
 
 1. **A round 3 of votes** on the v0.4.3 heuristics. Repair the suite in the app with Tuning mode on, then run

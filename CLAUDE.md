@@ -82,7 +82,10 @@ preview server (`.claude/launch.json`, port 8799). The visual review drives Powe
 AppleScript. Working copies get unique names (`slidetistic-<uuid>-<label>.pptx`); after opening, the renderer
 takes the *active* presentation and confirms its full path before exporting/closing. Never address a
 presentation by name, and never enumerate David's open presentations: a name clash once closed his deck.
-AppleScript gotcha: `out` is a reserved word in PowerPoint's dictionary; `whose` filters aren't supported.
+AppleScript gotchas: `out` is a reserved word in PowerPoint's dictionary; `whose` filters aren't supported. Paths go in
+as `on run argv` arguments, and `POSIX file` of one must be made BEFORE `tell application "Microsoft PowerPoint"`:
+inside the block PowerPoint resolves it against its own container (it saved `Data.pdf` there and asked David for
+access, 2026-10-13). Keynote's bundle id must stay literal in the script for its terms to compile.
 
 **Windows renderer** (`WindowsPowerPointRenderer`, COM via pywin32): opens a copy with
 `Presentations.Open(copy, ReadOnly, WithWindow=False)`, confirms `FullName` is the copy, `SaveAs(pdf, 32)`,
@@ -146,6 +149,19 @@ to David; only run `--update-snapshots` after he accepts it.
   the cache; tests run with private font folders (conftest) so nothing is installed for real.
 - **Temp files:** `cli cleanup [--all]`; renderers purge leftovers over 6 h; the app clears review bundles at
   launch and when a deck leaves the queue.
+
+## Upgrade round (2026-10-13): what to keep true
+
+- **Render copies are safe** (`deck.render_safe`): no external links that load, no macros or ActiveX. Windows also sets
+  `AutomationSecurity` to force-disable around every `Presentations.Open`.
+- **Copies never stay open:** the export script closes our copy on error; `render.OPEN_FILE` lists copies in flight
+  and the next engine closes leftovers; SIGTERM waits for the export (`core/events.busy`). The app stops engines
+  with SIGTERM, then SIGKILL after a grace period, and on quit / before an update installs.
+- **Render cache** (`engine/render_cache.py`): keyed by content + platform + PowerPoint + Poppler + fonts. Tests run
+  with it off (conftest). `SLIDETISTIC_RENDER_RECORD` / `_REPLAY` record and replay PDFs (`tests/fixtures/renders`).
+- **Invariants** (`core/invariants.py`): every repair keeps slides, shapes, words and media files; a break is X000.
+- **Changed-slide export** (`--partial-export`, Diagnostics): off by default; check mode draws both ways.
+- **IPC:** the renderer may only act on paths main handed it (`known()` in main.js); settings keys are whitelisted.
 
 ## Packaging (phase 3)
 

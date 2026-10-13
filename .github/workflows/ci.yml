@@ -1,0 +1,45 @@
+name: CI
+
+# Every push and pull request (review 2026-10-13, 3.1): the unit and contract tests, the JavaScript parses, and
+# the engine still builds and lists its checks. Real PowerPoint and corpus tests stay local (pytest markers).
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']          # tags run release.yml, which tests too
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Python dependencies
+        run: pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Poppler (pdftotext, pdftoppm)
+        run: brew install poppler
+
+      - name: Tests
+        env: { SLIDETISTIC_SHAPE_CACHE: check }
+        run: python -m pytest -q
+
+      - name: JavaScript parses
+        run: for f in src/*.js src/renderer/*.js; do node --check "$f" || exit 1; done
+
+      - name: Engine builds and lists its checks
+        run: |
+          pyinstaller --clean --noconfirm --distpath backend/dist --workpath backend/build backend/slidetistic_engine.spec
+          backend/dist/slidetistic_engine/slidetistic_engine list-checks --json \
+            | python -c "import json,sys; n=len(json.load(sys.stdin)); print(n, 'checks'); sys.exit(n < 30)"
