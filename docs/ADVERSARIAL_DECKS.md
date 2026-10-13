@@ -12,6 +12,17 @@ far) before building anything.
 
 ---
 
+## 0. Setup (do this first, in the cloud session)
+
+```
+sudo apt-get update && sudo apt-get install -y poppler-utils   # pdftotext / pdftoppm (skip sudo if not available)
+python3.11 -m venv venv || python3 -m venv venv               # 3.11 matches CI; 3.12 works too
+venv/bin/pip install -r requirements.txt
+venv/bin/python -m pytest -q                                  # should pass before you change anything
+```
+
+Always use `venv/bin/python`. Engine commands are listed under "Commands" in CLAUDE.md.
+
 ## 1. What the cloud machine can and can't do
 
 - **It can't run PowerPoint.** The cloud is Linux. Every **L check** (layout fit: L001, L008–L011) and the
