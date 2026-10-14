@@ -2,8 +2,21 @@
 # Longest first: "Bold Italic" must win over "Italic".
 fixable:
   - {suffix: Bold Italic, bold: true, italic: true}
+  # Localised Office/Canva exports (adversarial round 1: "Roboto Fett"). German, French, Spanish, Italian.
+  - {suffix: Fett Kursiv, bold: true, italic: true}
+  - {suffix: Gras Italique, bold: true, italic: true}
+  - {suffix: Negrita Cursiva, bold: true, italic: true}
+  - {suffix: Grassetto Corsivo, bold: true, italic: true}
   - {suffix: Bold, bold: true}
+  - {suffix: Fett, bold: true}
+  - {suffix: Gras, bold: true}
+  - {suffix: Negrita, bold: true}
+  - {suffix: Grassetto, bold: true}
   - {suffix: Italic, italic: true}
+  - {suffix: Kursiv, italic: true}
+  - {suffix: Italique, italic: true}
+  - {suffix: Cursiva, italic: true}
+  - {suffix: Corsivo, italic: true}
 
 # A word right before the suffix that makes it a different weight: "Extra Bold" ≠ Bold.
 modifiers: [Extra, Semi, Demi, Ultra, Extra-, Semi-]

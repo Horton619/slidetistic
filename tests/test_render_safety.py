@@ -38,7 +38,7 @@ def test_export_script_takes_paths_as_arguments_and_closes_on_error(mac, monkeyp
     monkeypatch.setattr(mac, "_osa", osa)
     src = Path('/x/it\'s "odd".pptx')
     mac._save_as_pdf(src, Path("/x/out.pdf"), 60)
-    assert seen["args"] == (str(src), "/x/out.pdf", src.name)
+    assert seen["args"] == (str(src), "/x/out.pdf", src.name, src.stem)
     assert "odd" not in seen["script"]
     assert "on error msg number n" in seen["script"] and "close presentation (item 3 of argv)" in seen["script"]
     assert not render.OPEN_FILE.exists(), "a finished export leaves nothing in the open list"
@@ -140,3 +140,17 @@ def test_open_at_slide_waits_for_the_render_lock(tmp_path, monkeypatch):
     assert calls == []
     assert render.open_at_slide(tmp_path / "d.pptx", 3) is None
     assert calls[0][1] == "3"
+
+
+def test_repair_prompt_gets_a_plain_message_and_isnt_stuck(mac, monkeypatch, tmp_path):
+    """Adversarial round 2: PowerPoint asked to repair a damaged deck. Say so plainly; it's the deck's problem, so
+    PowerPoint isn't marked stuck and the next deck still gets its layout pass."""
+    monkeypatch.setattr(render, "write_render_copy", lambda src, dst: dst.write_bytes(b"PK"))
+    monkeypatch.setattr(render, "_deck_size", lambda p: (1, 0.1))
+    monkeypatch.setattr(mac, "_close_leftovers", lambda: None)
+    for stderr in ("execution error: REPAIR-PROMPT: PowerPoint had to repair the copy (-2700)",
+                   "Can't get full name of missing value. (-1728)", "User canceled. (-128)"):
+        monkeypatch.setattr(mac, "_save_as_pdf", lambda s, p, t, e=stderr: _ok(1, e))
+        with pytest.raises(render.RenderError, match="damaged parts"):
+            mac._export(tmp_path / "deck.pptx", "t")
+        assert not render.STUCK_FILE.exists()

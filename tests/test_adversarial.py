@@ -157,6 +157,10 @@ def absent_violations(findings, absent) -> list:
     return out
 
 
+def _check_of(e) -> str:
+    return e.check if hasattr(e, "check") else (e[0] if isinstance(e, (tuple, list)) else str(e))
+
+
 def describe(findings) -> str:
     return "\n".join(f"  {f.check_id} {f.status.value}{' (note)' if f.is_note else ''}"
                      f"{' (info)' if f.informational else ''} s{f.slide} [{f.subject}] {f.message[:110]}"
@@ -175,7 +179,9 @@ def test_scan_reports_what_it_should(spec, tmp_path):
     errors = [f for f in result.findings if f.status == Status.TOOL_ERROR]
     if spec.kind != "robust":
         assert not errors, "a check crashed:\n" + describe(errors)
-    missing = [str(e) for e in spec.expect if not any(matches(f, e) for f in result.findings)]
+    # A layout deck's L-check expectations need PowerPoint: they're checked on David's Mac (suite --layout).
+    expect = [e for e in spec.expect if not (spec.layout and _check_of(e).startswith("L"))]
+    missing = [str(e) for e in expect if not any(matches(f, e) for f in result.findings)]
     wrong = absent_violations(result.findings, spec.absent)
     assert not missing and not wrong, (f"missing: {missing}\nshould not be there: {wrong}\nfound:\n"
                                        + describe(result.findings))
@@ -306,3 +312,13 @@ def test_every_committed_deck_is_in_the_catalogue():
 def test_manifest_is_current():
     assert (adv_build.HERE / "MANIFEST.md").read_text(encoding="utf-8") == adv_build.manifest(), \
         "MANIFEST.md is stale: run `venv/bin/python -m tests.fixtures.adversarial.build`"
+
+
+def test_shapes_sharing_an_id_are_never_fixed(tmp_path):
+    """R-duplicate-shape-ids (2026-10-14): two boxes with one id. Neither moves, both stay red and say why."""
+    spec = next(s for s in SPECS if s.name == "R-duplicate-shape-ids")
+    _, result = _repair(spec, tmp_path)
+    reds = [f for f in result.findings if f.check_id == "G001" and f.status == Status.RED]
+    assert len(reds) == 2 and all("share this shape's id" in f.message or "share" in str(f.evidence) for f in reds), \
+        describe(result.findings)
+    assert not [c for c in result.changes if c.check_id == "G001"]

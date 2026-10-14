@@ -287,3 +287,40 @@ venv/bin/python -m tests.fixtures.adversarial.run_all --out /tmp/adv   # CLI run
 
 When a to-do is fixed, its test reports XPASS(strict): remove that deck's `xfail=` in
 `tests/fixtures/adversarial/decks.py`.
+
+## Fixes (2026-10-14, David: "1 and 2")
+
+Round 2's three bugs and round 1's to-do list. Each deck's `xfail` is gone, so its test now checks the fix.
+
+- **Off-slide text the Mac doesn't draw** (G001-text-overflows-unwrapped, G002-autofit-off-overflow). L008 counts
+  the words PowerPoint left out when the drawn text reaches an edge. Both decks are now red ("N words aren't drawn
+  at all"), and a move that leaves words undrawn no longer counts as fixed. Checked with real PowerPoint. The replay
+  fixture's old recording had the same wrong "fixed" ("edge" was still off): re-recorded.
+- **"Repair?" prompt:** a plain message ("damaged parts … let it repair, save a copy"). A copy PowerPoint renamed
+  "… - Repaired" is closed when its name holds our unique tag. It isn't marked stuck, so the next deck still gets its
+  layout pass. Not yet tried live: that needs someone to answer the prompt on screen.
+- **Misses fixed:**
+  - F011: ✅⌚⭐☕ and keycaps.
+  - G003: text direction.
+  - C001: "Presenter Name" without brackets (yellow).
+  - C002: white on white.
+  - F001: Fett/Gras/Negrita/Grassetto + Kursiv/Italique/Cursiva/Corsivo, and "Open Sans (Bold)" (now F001's, which
+    sets bold).
+  - X002: full path over 259.
+  - R-encrypted: says "password-protected".
+  - X004: a linked transition sound.
+  - M011/M008/M009: HEIC/WebP.
+- **False alarms fixed:**
+  - F001 on "Arial Rounded MT Bold".
+  - F004 on a notes-only font (now a note).
+  - F011 on a stray U+FE0F.
+- **Robustness:**
+  - Shapes sharing an id are never fixed; both say why.
+  - A slide list naming a missing slide gets one plain refusal.
+- **Still open (David's call):**
+  - C007 on resolved-only comments.
+  - '#' in file names.
+  - Accepting .pptm/.ppsx.
+  - F003 + F007 both on "Montserrat SemiBold".
+  - M011 on PNG bytes declared JPEG (needs a PowerPoint test first).
+  - The section 5 new checks.

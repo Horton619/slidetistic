@@ -172,6 +172,9 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                             touched.add(f.slide)
                             did = True
                             continue
+                        if _shared_id(deck, f):
+                            outcome[f.key] = ("refused", SHARED_ID)
+                            continue
                         sv = deck.find_shape(f.slide, f.shape_id) if f.shape_id is not None else None
                         shape_before = deepcopy(sv.shape.element) if sv is not None else None
                         n = len(edits.changes)
@@ -253,6 +256,18 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
         for n in sorted(changed):
             _revert_slide(deck, n, snapshots[n], edits, fit_ids, outcome, None,
                           why=f"PowerPoint stopped before this fix could be checked ({e}), so the slide was left as it was")
+
+
+SHARED_ID = ("two shapes on this slide share this shape's id (slides merged from two decks do this), so SlideTistic "
+             "can't tell which one to change; fix it by hand")
+
+
+def _shared_id(deck, f) -> bool:
+    """The finding's shape id belongs to more than one shape on its slide: a fix could change the wrong one
+    (adversarial round 1). Both are left alone and reported."""
+    if f.slide is None or f.shape_id is None:
+        return False
+    return sum(1 for sv in deck.slide_shapes(f.slide) if sv.shape_id == f.shape_id) > 1
 
 
 def _partial_ok(config, ctx, dirty, prev_layout, visible) -> bool:
@@ -510,6 +525,9 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
             continue
         for f in current:
             if f.informational or f.status not in PROBLEM:
+                continue
+            if _shared_id(deck, f):
+                outcome[f.key] = ("refused", SHARED_ID)
                 continue
             try:
                 check.fix(deck, f, edits, ctx)

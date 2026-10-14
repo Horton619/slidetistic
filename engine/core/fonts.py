@@ -86,6 +86,10 @@ def split_style(name: str) -> tuple[str, bool, bool] | None:
 def _split_one_style(name: str) -> tuple[str, bool, bool] | None:
     modifiers = {m.casefold() for m in rules.load("weight_suffixes").get("modifiers", [])}
     for entry in rules.load("weight_suffixes")["fixable"]:
+        # Canva also writes the style in brackets: "Open Sans (Bold)" (adversarial round 1).
+        bracketed = f" ({entry['suffix']})"
+        if name.endswith(bracketed) and len(name) > len(bracketed):
+            return name[: -len(bracketed)], entry.get("bold", False), entry.get("italic", False)
         suffix = " " + entry["suffix"]
         if name.endswith(suffix) and len(name) > len(suffix):
             base = name[: -len(suffix)]

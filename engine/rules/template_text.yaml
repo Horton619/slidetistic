@@ -23,6 +23,13 @@ yellow_words:            # whole-word matches
   - TK
   - XXX
   - placeholder
+  # Template fill-ins without brackets (adversarial round 1): usually leftovers, but a real slide could say
+  # "Speaker name: …", so yellow.
+  - presenter name
+  - speaker name
+  - company name
+  - your name
+  - your logo
 
 # C002: a slide whose only text is one of these (punctuation ignored) is a placeholder slide.
 slide_placeholders:

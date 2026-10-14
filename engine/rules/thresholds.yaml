@@ -16,6 +16,7 @@ low_res_ratio: 0.5              # image shown at >200% of its pixels → soft on
 low_res_min_shown_px: 480       # …and it fills at least a quarter of the screen width (small logos don't matter)
 deck_size_warn_mb: 500          # X002
 filename_max_chars: 120         # X002
+path_max_chars: 259             # X002: Windows MAX_PATH (260 with the terminator)
 target_play_mode: click_sequence # M001: videos must start from the clicker ("In click sequence"); "Automatically" is also fine
 offslide_tolerance_in: 0.02     # G001/G002: overhangs smaller than this are ignored
 safe_zone_pct: 5                # David 2026-10-10: text stays inside a 5% border on every edge

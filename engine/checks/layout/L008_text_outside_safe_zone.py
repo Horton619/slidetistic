@@ -41,12 +41,21 @@ class TextOutsideSafeZone(Check):
                     # ascent ("Questions?" in a script font: box 0.26 in past the top, letters 0.8 in below it).
                     # Ask the picture; keep the edge only if letters touch it (or there's no picture).
                     gone = [e for e in gone if _cut_off(ctx.layout, n, st, e) is not False]
+                # Words PowerPoint didn't draw at all. Mac PowerPoint leaves text past the slide edge out of the
+                # PDF, so the drawn lines can end right at the edge while the rest of the sentence is gone
+                # (adversarial round 2: a wrap-off line "fixed" by a 1 in move; 6 of 12 lines below the slide
+                # reported as a safe-border yellow). Counted only when the drawn text reaches an edge.
+                lost, lost_edges = _undrawn(deck, views.get((n, sid)), st)
+                gone += [e for e in lost_edges if e not in gone]
                 near = [e for e, v in border.items() if v > 0]
                 if gone:
+                    words = f" {lost} word{'s' if lost != 1 else ''} aren't drawn at all." if lost else ""
+                    if lost:
+                        rule += f"; {lost} of the box's words are missing from PowerPoint's drawing, which reaches the {'/'.join(lost_edges)} edge"
                     findings.append(Finding(self.id, Status.RED,
-                        f"Text runs off the {' and '.join(gone)} of the slide as PowerPoint draws it.",
+                        f"Text runs off the {' and '.join(gone)} of the slide as PowerPoint draws it.{words}",
                         slide=n, shape_id=sid, shape_name=names.get((n, sid)), subject="off-slide",
-                        evidence={"edges": gone, "rule": rule, "box_emu": [l, t, r, b]}))
+                        evidence={"edges": gone, "rule": rule, "box_emu": [l, t, r, b], "undrawn_words": lost}))
                 elif near and fit.edge_band(deck, views.get((n, sid)), st.bounds, band_pct):
                     continue        # header/footer text sits by the edge on purpose (David 2026-10-12)
                 elif near:
@@ -143,6 +152,26 @@ class TextOutsideSafeZone(Check):
         tuning.allow(edits, sv, tuning.describe_pair(deck, sv, dx, dy, finding, ctx, self.id))
         fit.place(edits, sv, left=sv.bounds.left + dx, top=sv.bounds.top + dy)
         fit.place(edits, backing, left=ob.left + dx, top=ob.top + dy)
+
+
+def _undrawn(deck, sv, st) -> tuple[int, list[str]]:
+    """(words of the box PowerPoint didn't draw, the edges its drawn text reaches) when both are non-zero."""
+    if sv is None or not st.lines:
+        return 0, []
+    from engine.core.content import shape_text
+    from engine.core.layout.pdf import _tokens
+    lost = len(_tokens(shape_text(sv.shape))) - sum(len(l.tokens) for l in st.lines)
+    if lost <= 0:
+        return 0, []
+    W, H = deck.slide_width, deck.slide_height
+    l, t, r, b = st.bounds
+    line_h = max(l_.bottom - l_.top for l_ in st.lines)
+    # Mac leaves out whole words, so the drawn text stops up to a word short of the edge: about two line heights
+    # for big text (48 pt words are ~1 in wide; adversarial G001 stopped 0.7 in short).
+    side = max(228600, 2 * line_h)
+    edges = [e for e, hit in (("right", r >= W - side), ("left", l <= side), ("bottom", b >= H - 1.5 * line_h),
+                              ("top", t <= 1.5 * line_h)) if hit]
+    return (lost, edges) if edges else (0, [])
 
 
 def _cut_off(layout, n, st, edge):

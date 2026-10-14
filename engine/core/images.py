@@ -33,15 +33,21 @@ def pictures(deck, output_width_px: int) -> list[Pic]:
         if sv.kind != PICTURE or sv.bounds is None:
             continue
         try:
-            image = sv.shape.image
             # python-pptx's image.content_type is sniffed from the bytes; PowerPoint goes by the
             # type the package declares for the part, so use that.
-            content_type = sv.shape.part.related_part(sv.shape._element.blip_rId).content_type
+            part = sv.shape.part.related_part(sv.shape._element.blip_rId)
+            content_type = part.content_type
         except (ValueError, KeyError, AttributeError):   # linked or missing image
             continue
+        try:
+            image = sv.shape.image
+        except (ValueError, KeyError, AttributeError):
+            # HEIC/WebP load as a plain part (python-pptx has no image class for them), so there's no image
+            # object; the declared type and the bytes are still there (adversarial round 1).
+            image = None
         shown = max(1, round(sv.bounds.width / deck.slide_width * output_width_px))
         px_w = px_h = ratio = None
-        if content_type in BITMAPS:
+        if content_type in BITMAPS and image is not None:
             try:
                 px_w, px_h = image.size
             except Exception:  # noqa: BLE001 — unreadable header: skip the ratio, keep the facts
@@ -49,5 +55,6 @@ def pictures(deck, output_width_px: int) -> list[Pic]:
         if px_w:
             visible = px_w * max(0.0, 1 - (sv.shape.crop_left or 0) - (sv.shape.crop_right or 0))
             ratio = visible / shown if visible else None
-        out.append(Pic(sv, content_type, px_w, px_h, len(image.blob) / 1_048_576, shown, ratio))
+        blob = image.blob if image is not None else part.blob
+        out.append(Pic(sv, content_type, px_w, px_h, len(blob) / 1_048_576, shown, ratio))
     return out

@@ -125,9 +125,7 @@ def _(path):
 
 @deck("F001-arial-rounded-mt-bold", "powerpoint",
       "Look-alike: 'Arial Rounded MT Bold' is a real family whose name ends in Bold. Must NOT be renamed.",
-      absent=["F001", "F007"], kept_fonts=["Arial Rounded MT Bold"],
-      xfail="F001 doesn't consult office_bundled_fonts.yaml: it says the name 'may be a real font' (yellow) although "
-            "the full name is listed there as a font Office ships; F007 already treats it as covered")
+      absent=["F001", "F007"], kept_fonts=["Arial Rounded MT Bold"])
 def _(path):
     prs = new_deck(WIDE)
     s = blank(prs)
@@ -137,8 +135,7 @@ def _(path):
 
 @deck("F001-german-fett", "canva",
       "Weight word in another language: 'Roboto Fett' (German for Bold). Roboto is embedded.",
-      expect=[E("F001", "problem", subject="Roboto Fett")],
-      xfail="F001 only knows English style words (weight_suffixes.yaml); 'Fett'/'Gras'/'Negrita' aren't there")
+      expect=[E("F001", "problem", subject="Roboto Fett")])
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -206,8 +203,8 @@ def _(path):
 
 @deck("F002-open-sans-paren-bold", "canva",
       "'Open Sans (Bold)': another Canva-style private name, not in font_aliases.yaml.",
-      expect=[E("F002", "problem")],
-      xfail="font_aliases.yaml only has 'Calibri (MS)'; '(Bold)'-style names fall through to F007 as a missing font")
+      # Round 1 expected F002; it's a weight written into the name, which F001 owns (rename + bold flag). 2026-10-14.
+      expect=[E("F001", "red", subject="Open Sans (Bold)")], absent=[("F007", "red")])
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -266,8 +263,7 @@ def _(path):
 
 @deck("F004-canva-sans-notes-only", "canva",
       "Canva Sans used ONLY in the speaker notes. Notes show in Presenter View, not to the audience: a note at most.",
-      absent=[("F004", "red")],
-      xfail="F004 counts every font reference in every XML part, notes pages included, and calls it red")
+      absent=[("F004", "red")])
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -419,8 +415,7 @@ def _(path):
 
 @deck("F011-default-emoji-no-selector", "bad-design",
       "Emoji outside U+1F000–1FAFF with no U+FE0F: ✅ ⌚ ⭐ ☕ (emoji presentation by default on Mac and Windows).",
-      expect=[E("F011", "yellow", slide=1)],
-      xfail="F011's regex only covers U+1F000–1FAFF or a symbol followed by U+FE0F; ✅⌚⭐☕ are U+2xxx emoji")
+      expect=[E("F011", "yellow", slide=1)])
 def _(path):
     prs = new_deck(WIDE)
     s = blank(prs)
@@ -430,9 +425,7 @@ def _(path):
 
 @deck("F011-lone-variation-selector", "google",
       "Look-alike: a stray U+FE0F after ordinary letters/digits ('Room 1️' from a copy-paste). Not an emoji.",
-      absent=["F011"],
-      xfail="F011's '.\\uFE0F' matches any character before the selector, so a stray selector after a letter is "
-            "reported as emoji (keycap emoji need U+20E3 too)")
+      absent=["F011"])
 def _(path):
     prs = _google_deck()
     s = blank(prs)
@@ -538,9 +531,7 @@ def _(path):
 
 @deck("G001-text-overflows-unwrapped", "canva",
       "Box inside the slide, word wrap OFF, a long line runs past the right edge. The box is fine; the words aren't.",
-      expect=[E("L008", "red")], layout=True,
-      xfail="needs PowerPoint: L008 judges drawn words (G001 only looks at boxes). Round 2 (Mac): L008 red, but its "
-            "fix moves the box 1 in left and reports green_fixed while most of the line is still off the slide")
+      expect=[E("L008", "red")], layout=True)
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -551,9 +542,7 @@ def _(path):
 
 @deck("G002-autofit-off-overflow", "office2010",
       "Autofit off; 12 lines of 24 pt in a 2 in box near the bottom: the text runs below the slide, the box doesn't.",
-      expect=[E("L008", "red")], layout=True,
-      xfail="needs PowerPoint: L008 judges drawn words (G002 only looks at the box). Round 2 (Mac): only 6 of 12 "
-            "lines are drawn, yet L008 says yellow 'reaches into the safe border'; the Mac PDF leaves the lost lines out")
+      expect=[E("L008", "red")], layout=True)
 def _(path):
     prs = _office_deck()
     s = blank(prs)
@@ -588,8 +577,7 @@ def _(path):
 
 @deck("G003-ea-vertical", "google",
       "Vertical text by bodyPr vert='eaVert' (and 'vert270'), not by rotation. It's sideways text all the same.",
-      expect=[E("G003", "yellow")],
-      xfail="G003 reads only xfrm rot/flip; bodyPr vert='eaVert'/'vert'/'vert270' isn't seen")
+      expect=[E("G003", "yellow")])
 def _(path):
     prs = _google_deck()
     s = blank(prs)
@@ -1033,9 +1021,7 @@ def _(path):
 
 @deck("M011-heic-webp", "canva",
       "Slide 1 HEIC (an iPhone photo, declared image/heic), slide 2 WebP (declared image/webp).",
-      expect=[E("M011", "yellow", slide=1, subject="heic"), E("M011", "yellow", slide=2, subject="webp")],
-      xfail="python-pptx has no part class for image/heic, image/heif or image/webp, so those load as a plain Part; "
-            "images.pictures gets AttributeError on .image and skips the picture, so M011's HEIC/WebP rules never fire")
+      expect=[E("M011", "yellow", slide=1, subject="heic"), E("M011", "yellow", slide=2, subject="webp")])
 def _(path):
     prs = _canva_deck()
     kit.retype_image(picture(blank(prs), kit.png(40, 30)), "image/heic", "heic")
@@ -1071,8 +1057,7 @@ def _(path):
       "Slide 1 'Click to add title' typed as text; 2 'Lorem ipsum dolor sit amet'; 3 'Presenter Name' (no brackets); "
       "4 '[Speaker Name]'.",
       expect=[E("C001", "red", slide=1), E("C001", "red", slide=2), E("C001", "problem", slide=3),
-              E("C001", "red", slide=4)],
-      xfail="'Presenter Name' / 'Company Name' / 'Your Logo' without brackets aren't in template_text.yaml")
+              E("C001", "red", slide=4)])
 def _(path):
     prs = _canva_deck()
     for t in ("Click to add title", "Lorem ipsum dolor sit amet, consectetur", "Presenter Name\nTitle, Organization",
@@ -1095,8 +1080,7 @@ def _(path):
 @deck("C002-empty-cases", "powerpoint",
       "Slide 1: only empty placeholders (yellow 'nothing on it'). Slide 2: the only text is white on a white "
       "background (looks empty in the show).",
-      expect=[E("C002", "yellow", slide=1), E("C002", "problem", slide=2)],
-      xfail="C002 counts any text as content; white-on-white text isn't seen (see NEW-01)")
+      expect=[E("C002", "yellow", slide=1), E("C002", "problem", slide=2)])
 def _(path):
     prs = new_deck(WIDE)
     prs.slides.add_slide(prs.slide_layouts[1])
@@ -1217,8 +1201,7 @@ SPECS.extend([
 
 @deck("X002-long-path", "bad-design",
       "Short file name, but the folder path makes the full path over 260 characters (Windows MAX_PATH).",
-      expect=[E("X002", "yellow")], rename="deep",
-      xfail="X002 measures the file name only, not the full path")
+      expect=[E("X002", "yellow")], rename="deep")
 def _(path):
     prs = new_deck(WIDE)
     text(blank(prs), "Deep folder", 1, 1, 6, 1)
@@ -1299,7 +1282,6 @@ CFB = bytes.fromhex("D0CF11E0A1B11AE1")
       "Password-protected deck: an OLE compound file holding 'EncryptionInfo' and 'EncryptedPackage' streams "
       "(stand-in: CFB header + stream names, not a real encrypted file). Should say 'password-protected'.",
       kind="robust", outcome="error",
-      xfail="the message says 'damaged, an old .ppt renamed, or still downloading'; it never says password",
       real_ppt="File ▸ Passwords ▸ Password to open: 'sample'; save as .pptx. Done on the Mac 2026-10-13 (AppleScript "
                "`set password`): same message as the stand-in. Not committed: PowerPoint writes the user's name into "
                "the encrypted part and the password is public; re-save with a sample user name first.")
@@ -1374,9 +1356,8 @@ def _(path):
 
 
 @deck("R-sldid-nowhere", "engine", "presentation.xml lists a slide whose r:id has no relationship.",
-      kind="robust", outcome="ok",
-      xfail="every check crashes on its own ('no relationship with key rId999'): 32 tool_errors and an exit code "
-            "of 0, instead of one plain message that the slide list is damaged")
+      # Round 1 expected "ok"; 2026-10-14: one plain refusal is right (PowerPoint would ask to repair it too).
+      kind="robust", outcome="error")
 def _(path):
     _plain_deck(path, 2)
     def add(b):
@@ -1389,9 +1370,9 @@ def _(path):
 
 @deck("R-duplicate-shape-ids", "engine",
       "Two off-slide text boxes sharing shape id 5 (merged slides do this). Both must be fixed, or neither; never "
-      "the wrong one.", kind="robust", outcome="ok", expect=[E("G001", "red")], fixed=["G001"],
-      repair_xfail="find_shape returns the first shape with the id, so only the first box is moved; both findings "
-                   "share one key, so the report calls both 'fix ran but the problem is still there'")
+      "the wrong one.", kind="robust", outcome="ok", expect=[E("G001", "red")])
+# 2026-10-14: "neither". A shape whose id is shared on its slide is never fixed (runner._shared_id); both stay red
+# with a plain reason. test_adversarial checks that nothing moved.
 def _(path):
     prs = new_deck(WIDE)
     s = blank(prs)
@@ -1922,9 +1903,7 @@ def _(path):
              "X004 skips audio relationships (left to M003), and M003 only sees media shapes, so nobody reports it. "
              "Fix: let X004 report external audio rels that aren't media shapes (transition and action sounds). "
              "Approximate XML: needs a real-PowerPoint copy.",
-             expect=[E("X004", "red")],
-             xfail="X004 skips reltype .../audio and M003 only reads video/audio shapes: a linked transition sound "
-                   "on C:\\ falls through both",
+             expect=[E("X004", "red")], xfail=None,
              real_ppt="Transitions ▸ Sound ▸ Other Sound…, pick a .wav, untick embed is not offered on Mac: use Windows "
                       "PowerPoint 2010-style 'link to sound' via an action setting (Insert ▸ Action ▸ Play sound).")
 def _(path):

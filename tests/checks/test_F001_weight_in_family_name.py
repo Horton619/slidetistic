@@ -43,7 +43,8 @@ def test_f001_real_family_ending_in_bold_is_left_alone(tmp_path):
     # Nearest look-alike: 'Arial Rounded MT Bold' is a real font; there's no 'Arial Rounded MT'.
     src = make_deck(tmp_path, text_box(font="Arial Rounded MT Bold"))
     result = run_repair(src, "F001")
-    assert statuses(result, "F001") == {"Arial Rounded MT Bold": Status.YELLOW}
+    # 2026-10-14 (adversarial round 1): Office ships it (office_bundled_fonts.yaml), so it isn't even a yellow.
+    assert statuses(result, "F001") == {}
     assert result.changes == []
 
 
