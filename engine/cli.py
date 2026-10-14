@@ -370,6 +370,9 @@ def unreadable_reason(path: Path) -> str | None:
         kind = "a folder of slide images" if pics else "a folder"
         return f"{path.name} is {kind}, not a PowerPoint file."
     if not zipfile.is_zipfile(path):
+        if _encrypted(path):
+            return (f"{path.name} is password-protected. Open it in PowerPoint with the password, remove it "
+                    "(File ▸ Passwords, or Info ▸ Protect Presentation), save, and check that copy.")
         return f"{path.name} isn't a valid PowerPoint file (it may be damaged, an old .ppt renamed, or still downloading)."
     with zipfile.ZipFile(path) as z:
         infos = z.infolist()
@@ -380,7 +383,52 @@ def unreadable_reason(path: Path) -> str | None:
         if any(i.filename.endswith((".xml", ".rels")) and i.file_size > XML_PART_MAX for i in infos) \
                 or sum(i.file_size for i in infos) > DECK_UNPACKED_MAX:
             return f"{path.name} unpacks to an implausible size; it may be damaged or crafted. Not opened."
+        if _slide_list_broken(z):
+            return (f"{path.name} is damaged: its slide list names a slide that isn't in the file. Open it in "
+                    "PowerPoint (let it repair the file if it asks), save a copy, and check that.")
     return None
+
+
+def _slide_list_broken(z) -> bool:
+    """A slide in presentation.xml's list with no relationship, or a relationship to a missing part. Every check
+    would fail on its own (adversarial round 1: 32 tool_errors); one plain message instead."""
+    import posixpath
+    from lxml import etree
+    names = set(z.namelist())
+    try:
+        pres = etree.fromstring(z.read("ppt/presentation.xml"))
+        rels = etree.fromstring(z.read("ppt/_rels/presentation.xml.rels"))
+    except (KeyError, etree.XMLSyntaxError):
+        return False                # not this problem; python-pptx will say what's wrong
+    R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    targets = {r.get("Id"): r.get("Target", "") for r in rels}
+    for sld in pres.iter("{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"):
+        target = targets.get(sld.get(R))
+        if target is None:
+            return True
+        part = posixpath.normpath(target.lstrip("/") if target.startswith("/") else posixpath.join("ppt", target))
+        if part not in names:
+            return True
+    return False
+
+
+def _encrypted(path: Path) -> bool:
+    """A password-protected .pptx is an OLE compound file (like an old .ppt) holding 'EncryptionInfo' and
+    'EncryptedPackage' streams; their names sit in the file's directory, near the start in practice."""
+    import struct
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512)
+            if head[:8] != bytes.fromhex("d0cf11e0a1b11ae1"):
+                return False
+            data = head + f.read(1024 * 1024)
+            # The directory's first sector, from the header (sector size 2**shift); big files put it anywhere.
+            shift, first_dir = struct.unpack_from("<H", head, 0x1E)[0], struct.unpack_from("<I", head, 0x30)[0]
+            f.seek((first_dir + 1) << shift)
+            data += f.read(64 << shift)
+    except (OSError, struct.error):
+        return False
+    return "EncryptedPackage".encode("utf-16-le") in data or "EncryptionInfo".encode("utf-16-le") in data
 
 
 XML_PART_MAX = 256 * 1024 * 1024

@@ -19,8 +19,11 @@ class WeightInFamilyName(Check):
         known = (rules.names("office_fonts") | fonts.embedded_families(deck) | ctx.crew_fonts
                  | {r.typeface.casefold() for r in refs if not fonts.split_style(r.typeface)})
         by_name = defaultdict(list)
+        # A real font whose own name ends in a style word ("Arial Rounded MT Bold", which Office ships) isn't a
+        # fake family (adversarial round 1).
+        real = rules.names("office_fonts") | rules.names("office_bundled_fonts")
         for r in refs:
-            if fonts.split_style(r.typeface):
+            if fonts.split_style(r.typeface) and r.typeface.casefold() not in real:
                 by_name[r.typeface].append(r)
         # Canva embeds each weight under its own name ("Roboto Bold" holds Roboto's Bold face). After F001 renames
         # the text, F005 refiles that file into the base family's bold slot, so PowerPoint still finds it. That

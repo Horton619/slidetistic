@@ -226,8 +226,12 @@ STUCK_FILE = CONTAINER_TMP / "stuck.json"
 # own PowerPoint windows never vanish mid-work. Default on (David 2026-10-11); `--powerpoint-visible`
 # or SLIDETISTIC_PPT_HIDDEN=off turns it off if hidden renders ever stall on a dialog nobody can see.
 PPT_HIDDEN = os.environ.get("SLIDETISTIC_PPT_HIDDEN", "on") != "off"
-STUCK_MESSAGE = ("PowerPoint stopped responding. Save your work, quit PowerPoint (Force Quit if needed), "
-                 "then check the deck again")
+STUCK_MESSAGE = ("PowerPoint stopped responding. It may be showing a prompt (for example \"repair this file?\"): "
+                 "answer it, or save your work and quit PowerPoint (Force Quit if needed), then check the deck again")
+# PowerPoint found damaged parts in the deck and asked to repair it (adversarial round 2). The deck itself is the
+# problem, not PowerPoint, so the next deck still gets its layout pass.
+REPAIR_MESSAGE = ("PowerPoint says this deck has damaged parts and asked to repair it, so its layout wasn't checked. "
+                  "Open the original in PowerPoint, let it repair, save a copy, and check that")
 
 
 class MacPowerPointRenderer(_Renderer):
@@ -353,7 +357,16 @@ class MacPowerPointRenderer(_Renderer):
                 -- The file just opened is the active one (its name is unique). Confirm by full path
                 -- before touching it, and never enumerate or query the user's other presentations.
                 set p to active presentation
-                if (full name of p) is not src then error "SlideTistic's copy isn't the active presentation"
+                if p is missing value then error "REPAIR-PROMPT: PowerPoint opened no presentation"
+                if (full name of p) is not src then
+                  -- PowerPoint repaired our copy and renamed it ("… - Repaired"): still ours if its name holds
+                  -- our unique tag. Close it; never touch a presentation without the tag.
+                  if (name of p) contains (item 4 of argv) then
+                    close p saving no
+                    error "REPAIR-PROMPT: PowerPoint had to repair the copy"
+                  end if
+                  error "SlideTistic's copy isn't the active presentation"
+                end if
                 save p in pdfPath as save as PDF
                 close p saving no
               end tell
@@ -374,7 +387,7 @@ class MacPowerPointRenderer(_Renderer):
         end run'''
         import time
         limit = seconds + 30
-        run = self._osa(script, limit, (str(src), str(pdf), src.name),
+        run = self._osa(script, limit, (str(src), str(pdf), src.name, src.stem),
                         on_start=lambda pid: _journal(src, pid, time.time() + limit))
         if run is not None and "-1712" not in run.stderr:
             if run.returncode and not self._close_copy(src):
@@ -399,6 +412,8 @@ class MacPowerPointRenderer(_Renderer):
         if run is not None and run.returncode == 0 and pdf.exists():
             return pdf
         hung = run is None or "-1712" in run.stderr       # AppleEvent timed out
+        if not hung and any(k in run.stderr for k in ("REPAIR-PROMPT", "missing value", "(-128)")):
+            raise RenderError(REPAIR_MESSAGE)
         if not hung:
             raise RenderError(f"PowerPoint couldn't export {pptx.name}: "
                               f"{run.stderr.strip()[:200] or 'it reported no error but wrote no PDF'}")

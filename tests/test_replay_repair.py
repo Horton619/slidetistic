@@ -37,7 +37,10 @@ def test_layout_repair_replayed_from_recorded_powerpoint_renders(tmp_path, monke
     finally:
         runner.cleanup()
     moves = [(c.check_id, c.slide, c.prop, c.after) for c in result.changes if c.check_id.startswith("L")]
-    assert moves == [("L008", 2, "left", 8324205)], "the off-slide box on slide 2 moves back in, nothing else moves"
+    # Two moves: after the first, "edge" was still past the slide (Mac leaves it out of the PDF); until 2026-10-14
+    # the engine called that fixed (adversarial round 2). Re-recorded then.
+    assert moves == [("L008", 2, "left", 8324205), ("L008", 2, "left", 7783617)], \
+        "the off-slide box on slide 2 moves back in until every word is drawn; nothing else moves"
     fixed = {(f.check_id, f.slide) for f in result.findings if f.status.value == "green_fixed"}
     assert {("G001", 2), ("L008", 2)} <= fixed
     assert not [f for f in result.findings if f.status.value == "tool_error"]

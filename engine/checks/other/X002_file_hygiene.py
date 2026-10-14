@@ -12,7 +12,7 @@ class FileHygiene(Check):
     description = "Very large decks, and file names with emoji, slashes or extreme length that trip up playback machines."
     report_only = True
     sources = ["any"]
-    thresholds = ["deck_size_warn_mb", "filename_max_chars"]
+    thresholds = ["deck_size_warn_mb", "filename_max_chars", "path_max_chars"]
 
     def detect(self, deck, ctx):
         findings = []
@@ -31,4 +31,12 @@ class FileHygiene(Check):
             findings.append(Finding(self.id, Status.YELLOW,
                 f"File name is {len(name)} characters; long paths can fail to open on Windows.",
                 subject="name-length", evidence={"length": len(name)}))
+        full = len(str(deck.path.resolve()))
+        if full > self.threshold(ctx, "path_max_chars"):
+            # Windows' classic limit (MAX_PATH): PowerPoint and Explorer can refuse a file deeper than this
+            # (adversarial round 1). Where it sits on the show machine decides; this is where it sits now.
+            findings.append(Finding(self.id, Status.YELLOW,
+                f"The full path is {full} characters; Windows can refuse to open files past 259. Copy it to a "
+                "short folder (like the desktop) on the show machine.",
+                subject="path-length", evidence={"length": full}))
         return findings

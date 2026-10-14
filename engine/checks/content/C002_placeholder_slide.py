@@ -30,12 +30,40 @@ class PlaceholderSlide(Check):
                 findings.append(Finding(self.id, Status.YELLOW,
                     "Slide has nothing on it. Fine if it's a deliberate black/walk-in slide.",
                     slide=n, subject="empty"))
+            elif visible and not [sv for sv in visible if not (sv.text_bearing and _invisible(sv, slide))]:
+                # Everything on it is text in the background's own colour (adversarial round 1: white on white).
+                findings.append(Finding(self.id, Status.YELLOW,
+                    "Slide looks empty in the show: its only text is the same colour as the background.",
+                    slide=n, subject="invisible", evidence={"rule": "every text run's colour equals the slide's "
+                                                                    "solid background colour"}))
             elif text in phrases:
                 pictures = [sv for sv in visible if not sv.text_bearing]
                 findings.append(Finding(self.id, Status.RED if not pictures else Status.YELLOW,
                     f"Slide only says '{text}'. The real content was probably never added.",
                     slide=n, subject="placeholder", evidence={"text": text, "other_shapes": len(pictures)}))
         return findings
+
+
+def _solid_bg(slide) -> str | None:
+    bg = slide._element.cSld.find(qn("p:bg"))
+    clr = bg.find(f"{qn('p:bgPr')}/{qn('a:solidFill')}/{qn('a:srgbClr')}") if bg is not None else None
+    return clr.get("val", "").upper() if clr is not None else None
+
+
+def _invisible(sv, slide) -> bool:
+    """Every run with text has an explicit colour equal to the slide's explicit solid background. Theme colours
+    and pictures aren't resolved: unknown counts as visible."""
+    bg = _solid_bg(slide)
+    if not bg:
+        return False
+    runs = [r for r in sv.shape._element.iter(qn("a:r")) if (r.findtext(qn("a:t")) or "").strip()]
+    if not runs:
+        return False
+    for r in runs:
+        clr = r.find(f"{qn('a:rPr')}/{qn('a:solidFill')}/{qn('a:srgbClr')}")
+        if clr is None or clr.get("val", "").upper() != bg:
+            return False
+    return True
 
 
 def _has_backdrop(slide) -> bool:

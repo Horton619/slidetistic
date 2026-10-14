@@ -75,7 +75,13 @@ venv/bin/python -m engine.cli scan <deck.pptx> --json
 venv/bin/python -m engine.cli repair <deck.pptx> --preset canva --json   # + "<out> report.html" with visual review
 venv/bin/python -m engine.cli repair <deck.pptx> --no-visual            # report without PowerPoint renders
 venv/bin/python -m engine.cli media <deck.pptx> --xlsx out.xlsx          # inventory + download list
+venv/bin/python -m pytest -m slow                      # big adversarial decks (500 slides, 2 GB)
+venv/bin/python -m tests.fixtures.adversarial.build    # rebuild tests/fixtures/adversarial/ decks + MANIFEST.md
 ```
+
+Adversarial decks (`tests/fixtures/adversarial/`, results in `docs/ADVERSARIAL_RESULTS.md`): made-up decks that attack
+every check; `decks.py` holds each deck's builder and what it should report. A known gap is `xfail=` there: when you fix
+one, its test turns XPASS(strict); remove the `xfail`.
 
 Reports with client slides go in the git-ignored `corpus/reports/`; view them with the `reports`
 preview server (`.claude/launch.json`, port 8799). The visual review drives PowerPoint for Mac via

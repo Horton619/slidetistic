@@ -23,7 +23,20 @@ class CanvaOnlyFont(Check):
         for fam, group in sorted(by_family.items()):
             name, substitute = catalog[fam]
             tip = f" Suggested swap: {substitute}." if substitute else " Ask the presenter for a version in a standard font."
+            if all(_in_notes(r) for r in group):
+                # Speaker notes never show in the show (adversarial round 1: a notes-only use was red).
+                findings.append(Finding(self.id, Status.YELLOW,
+                    f"{name} only exists inside Canva, but it's used only in the speaker notes, which the audience "
+                    f"never sees.", subject=name,
+                    evidence={**fonts.usage_evidence(group), "substitute": substitute, "note": True,
+                              "rule": "every use is in a notes page"}))
+                continue
             findings.append(Finding(self.id, Status.RED,
                 f"{name} only exists inside Canva, so PowerPoint will swap in another font ({fonts.where(group)}).{tip}",
                 subject=name, evidence={**fonts.usage_evidence(group), "substitute": substitute}))
         return findings
+
+
+def _in_notes(ref) -> bool:
+    name = str(getattr(ref.part, "partname", ""))
+    return "/notesSlides/" in name or "/notesMasters/" in name
