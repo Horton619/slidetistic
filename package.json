@@ -1,6 +1,6 @@
 {
   "name": "slidetistic",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Audits and repairs Canva / Google Slides / Keynote decks for PowerPoint — Visual Entropy Productions",
   "main": "src/main.js",
   "author": "Visual Entropy Productions",
