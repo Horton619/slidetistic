@@ -53,11 +53,23 @@ def creative_cloud_dir() -> Path | None:
     return Path.home() / "Library" / "Application Support" / "Adobe" / "CoreSync" / "plugins" / "livetype" / ".r"
 
 
+def office_cloud_dirs() -> list[Path]:
+    """Where Office keeps the Microsoft 365 cloud fonts it has downloaded (plain .ttf files, one folder per family:
+    Abadi, Grandview, Aptos Display…). PowerPoint uses them like installed fonts (David 2026-10-15)."""
+    if os.environ.get("SLIDETISTIC_FONT_DIR"):
+        return []
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Microsoft" / "FontCache"
+    else:
+        base = Path.home() / "Library" / "Group Containers" / "UBF8T346G9.Office" / "FontCache"
+    return sorted(base.glob("*/CloudFonts")) if base.is_dir() else []
+
+
 def font_dirs() -> list[Path]:
     """Folders whose fonts count as 'installed on this computer' (PowerPoint for Mac also has its own)."""
     if os.environ.get("SLIDETISTIC_FONT_DIR"):
         return [Path(os.environ["SLIDETISTIC_FONT_DIR"])]
-    cc = [creative_cloud_dir()]
+    cc = [creative_cloud_dir()] + office_cloud_dirs()
     if sys.platform == "win32":
         return [Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts", install_dir()] + cc
     return [Path("/System/Library/Fonts"), Path("/Library/Fonts"), install_dir(),
@@ -456,7 +468,9 @@ def collect(deck_path, out_dir=None, emit=lambda ev: None) -> dict:
                     dest.unlink()
                 shutil.copyfile(src, dest)
                 if not any(r[0] == name for r in report):
-                    report.append((name, "Creative Cloud" if from_cc else "installed", src))
+                    from_office = any(Path(src).is_relative_to(d) for d in office_cloud_dirs())
+                    report.append((name, "Creative Cloud" if from_cc else
+                                   "Microsoft 365 cloud font (Office's download)" if from_office else "installed", src))
                 continue
             entry = fonts_catalog.lookup(fam) or fonts_catalog.lookup(base)
             if entry is None:

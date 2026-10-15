@@ -91,3 +91,14 @@ def test_creative_cloud_install_state_decides_if_powerpoint_can_use_it(tmp_path,
     assert adobe_fonts.added_state("Abadi") == "CC"              # by the page slug, without the link
     assert adobe_fonts.added_state("Bebas Neue") == "OS"
     assert adobe_fonts.added_state("Gotham") is None
+
+
+def test_office_cloud_fonts_count_as_a_font_source(tmp_path, monkeypatch):
+    """David 2026-10-15: Office's own downloads of Microsoft 365 cloud fonts (Abadi) are plain .ttf files."""
+    cache = tmp_path / "Library/Group Containers/UBF8T346G9.Office/FontCache/4/CloudFonts/Abadi"
+    cache.mkdir(parents=True)
+    monkeypatch.delenv("SLIDETISTIC_FONT_DIR", raising=False)
+    monkeypatch.setattr(fonts_install.sys, "platform", "darwin")
+    monkeypatch.setattr(fonts_install.Path, "home", staticmethod(lambda: tmp_path))
+    assert fonts_install.office_cloud_dirs() == [cache.parent]
+    assert cache.parent in fonts_install.font_dirs()
