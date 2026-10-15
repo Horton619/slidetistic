@@ -12,7 +12,7 @@ from lxml import etree
 
 from .core import Deck, Status
 from .core.content import is_hidden
-from .core.shapes import GROUP
+from .core.shapes import PICTURE, GROUP
 
 
 KIND = {"F": "font", "G": "placement", "L": "layout", "M": "media", "P": "media", "C": "content", "X": "content"}
@@ -99,6 +99,11 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
         deck_fixes = [f for f in fixed.values() if not f.slide]
         for (slide, sid), (b, a) in changed_shapes(original, mended).items():
             changes = per_shape.get((slide, sid), [])
+            if not changes and PICTURE in (getattr(b, "kind", None), getattr(a, "kind", None)):
+                # A picture changed only by a deck-wide fix is Compress pictures (M013): smaller file, same look by
+                # design, reported by its own banner. Not a slide to check or vote on (David 2026-10-15: 22 votes
+                # "not worth it").
+                continue
             if changes:
                 cid = changes[0].check_id
                 label = _change_label(changes)

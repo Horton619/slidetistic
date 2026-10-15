@@ -369,6 +369,14 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
         sl, stop, sr, sb = min(sl, max(cl, 0)), min(stop, max(ct, 0)), max(sr, min(cr, W)), max(sb, min(cb, H))
     fixed = _Fixed(sv)
     old = fixed.bounds.width
+    # Text that sits on a filled shape (a panel, a pill) stays inside it: a wider wrap that spills past the
+    # shape is worse than the problem it fixes (David 2026-10-15, DCS slide 62: L009 widened 8% and the text left
+    # its panel). Where the text already overhangs the shape, it may go no further than now.
+    backing = backing_shape(deck, sv) if not move else None
+    if backing is not None and st.lines:
+        ob = backing.bounds
+        keep_l = min(ob.left, min(x.left for x in st.lines)) - tol
+        keep_r = max(ob.right, max(x.right for x in st.lines)) + tol
     steps = sorted(range(-narrow_pct, widen_pct + 1), key=lambda d: (abs(d), d < 0))
     for font in fonts:
         for spacing in spacings:
@@ -392,6 +400,9 @@ def plan_fit(deck, sv, st, slide_layout, safe, tol, *, accept, narrow_pct=15, wi
                     lines = shifted(lines, dx, dy)
                 if (min(x.left for x in lines) < sl or max(x.right for x in lines) > sr or
                         min(x.top for x in lines) < stop or max(x.bottom for x in lines) > sb):
+                    continue
+                if backing is not None and st.lines and (min(x.left for x in lines) < keep_l
+                                                         or max(x.right for x in lines) > keep_r):
                     continue
                 if collision(slide_layout, fixed.sid, lines, tol) is not None:
                     continue
