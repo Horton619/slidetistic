@@ -748,6 +748,12 @@ function onFontActivation(ev) {
   if (!deck) return;
   if (ev.finished) {
     deck.activating = null;
+    if (ev.adobeOnly?.length) {
+      resolve(deck, 'fonts-adobe-only', `${ev.adobeOnly.join(', ')}: Adobe apps only, not PowerPoint`,
+        `Creative Cloud added ${ev.adobeOnly.join(', ')} for Adobe's own apps only, so PowerPoint can't use ${ev.adobeOnly.length > 1 ? 'them' : 'it'}. ` +
+        'Ask the presenter for the font files, or swap the font.');
+      toast(`${ev.adobeOnly.join(', ')} ${ev.adobeOnly.length > 1 ? 'were' : 'was'} added for Adobe apps only; PowerPoint can't use ${ev.adobeOnly.length > 1 ? 'them' : 'it'}.`);
+    }
     if (ev.done.length) {
       delete deck.resolved?.['fonts-collect'];       // newly activated fonts are collectable now
       resolve(deck, 'fonts-adobe', `${ev.done.join(', ')} activated`,
@@ -758,7 +764,7 @@ function onFontActivation(ev) {
     return;
   }
   deck.activating = ev;
-  if (ev.done.length && ev.current) toast(`${ev.done[ev.done.length - 1]} added. Next: ${ev.current}.`);
+  if ((ev.done.length || ev.adobeOnly?.length) && ev.current) toast(`Next: ${ev.current}.`);
   if (selected() === deck) render();
 }
 

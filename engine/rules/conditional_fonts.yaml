@@ -24,6 +24,8 @@ office_cloud:
   - Avenir Next LT Pro
   - Avenir Next LT Pro Demi
   - Avenir Next LT Pro Light
+  - Abadi                      # David 2026-10-15: a deck used it; Adobe's 'Abadi MT Pro' is a different family
+  - Abadi Extra Light
 
 # Installed with Windows (show machines are usually PCs) but not necessarily on Macs.
 windows:

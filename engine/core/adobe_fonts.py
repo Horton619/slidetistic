@@ -11,6 +11,7 @@ import json
 import re
 import time
 import urllib.error
+from pathlib import Path
 
 from . import fonts_catalog, http
 
@@ -93,3 +94,44 @@ def lookup(families: list[str]) -> dict[str, dict | None]:
         _cache_path().parent.mkdir(parents=True, exist_ok=True)
         _cache_path().write_text(json.dumps(cache), encoding="utf-8")
     return out
+
+
+def entitlements_path() -> Path:
+    """Creative Cloud's own list of the fonts this account has added (CoreSync), with each one's install state."""
+    import os
+    import sys
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home())) / "Adobe/CoreSync/plugins/livetype/c/entitlements.xml"
+    return Path.home() / "Library/Application Support/Adobe/CoreSync/plugins/livetype/.c/entitlements.xml"
+
+
+def added() -> list[dict]:
+    """[{family, slug, state}] for every font Creative Cloud lists. state "OS": installed for every app
+    (PowerPoint can use it); "CC": only Adobe's own apps can use it (David 2026-10-15: Abadi MT Pro was added
+    that way; its files are encrypted and macOS doesn't register them)."""
+    import re
+    try:
+        text = entitlements_path().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out = []
+    for block in re.findall(r"<font>(.*?)</font>", text, re.S):
+        def tag(name):
+            m = re.search(rf"<{name}[^>]*>(.*?)</{name}>", block, re.S)
+            return (m.group(1).strip() if m else "")
+        url = tag("familyURL")
+        out.append({"family": tag("familyName"), "slug": url.rstrip("/").rsplit("/", 1)[-1] if url else "",
+                    "state": tag("installState")})
+    return out
+
+
+def added_state(family: str, link: str | None = None) -> str | None:
+    """How Creative Cloud added this family: "OS" (usable everywhere), "CC" (Adobe apps only), or None. Matched
+    by the Adobe page it came from (`link`) or by name: Adobe's family name can differ from the deck's
+    ("Abadi" → "Abadi MT Pro")."""
+    want = {slug(base_family(family))}
+    if link:
+        want.add(link.rstrip("/").rsplit("/", 1)[-1])
+    names = {family.casefold(), base_family(family).casefold()}
+    states = {f["state"] for f in added() if f["slug"] in want or f["family"].casefold() in names}
+    return "OS" if "OS" in states else "CC" if "CC" in states else None

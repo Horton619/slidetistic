@@ -497,8 +497,9 @@ ipcMain.handle('fonts:adobe', async (_e, families) => {
   const r = await engineJson(['fonts', 'adobe', '--json', ...familyArgs(families)], 60e3);
   return Object.fromEntries(r.events.filter((e) => e.type === 'adobe').map((e) => [e.family, { info: e.info, search: e.search }]));
 });
-const fontsHere = async (families) => {
-  const r = await engineJson(['fonts', 'here', '--json', ...familyArgs(families)], 60e3);
+const fontsHere = async (families, links = []) => {
+  const linkArgs = links.filter((l) => typeof l === 'string' && /^https:\/\/fonts\.adobe\.com\//.test(l)).flatMap((l) => ['--link', l]);
+  const r = await engineJson(['fonts', 'here', '--json', ...familyArgs(families), ...linkArgs], 60e3);
   return Object.fromEntries(r.events.filter((e) => e.type === 'here').map((e) => [e.family, e.here]));
 };
 
@@ -520,9 +521,10 @@ ipcMain.handle('fonts:activate', (_e, deckId, items) => {
   // Sign-in hops between Adobe, Google and Apple pages: any https page may load here; nothing else.
   win.webContents.on('will-navigate', (e, url) => { if (!/^https:\/\//.test(url)) e.preventDefault(); });
   win.webContents.setWindowOpenHandler(({ url }) => (/^https:\/\//.test(url) ? { action: 'allow' } : { action: 'deny' }));
-  adobe = { win, deckId, list, i: 0, done: [], timer: null, watcher: null, checking: false };
+  adobe = { win, deckId, list, i: 0, done: [], adobeOnly: [], timer: null, watcher: null, checking: false };
   const status = () => send('fonts:activation', {
-    deckId, current: list[adobe.i]?.family || null, index: adobe.i, total: list.length, done: adobe.done });
+    deckId, current: list[adobe.i]?.family || null, index: adobe.i, total: list.length, done: adobe.done,
+    adobeOnly: adobe.adobeOnly });
   const show = () => {
     const it = list[adobe.i];
     win.setTitle(`Adobe Fonts: ${it.family} (${adobe.i + 1} of ${list.length}) · click "Add" on the page`);
@@ -533,12 +535,14 @@ ipcMain.handle('fonts:activate', (_e, deckId, items) => {
     if (!adobe || adobe.checking) return;
     adobe.checking = true;
     const it = list[adobe.i];
-    const here = await fontsHere([it.family]);
+    const here = await fontsHere([it.family], [it.link]);
     if (!adobe) return;
     adobe.checking = false;
     if (!here[it.family]) return;
-    adobe.done.push(it.family);
-    log('info', 'adobe fonts', 'activated', it.family);
+    // Added for Adobe's apps only (David 2026-10-15, Abadi MT Pro): PowerPoint can't use it. Say so, move on.
+    if (here[it.family] === 'adobe_apps_only') adobe.adobeOnly.push(it.family);
+    else adobe.done.push(it.family);
+    log('info', 'adobe fonts', here[it.family], it.family);
     adobe.i += 1;
     if (adobe.i >= list.length) { win.close(); return; }
     show();
@@ -550,10 +554,11 @@ ipcMain.handle('fonts:activate', (_e, deckId, items) => {
   adobe.timer = setInterval(check, 8000);       // the folder watch can miss events; check anyway
   win.on('closed', () => {
     const done = adobe ? adobe.done : [];
+    const adobeOnly = adobe ? adobe.adobeOnly : [];
     clearInterval(adobe?.timer);
     adobe?.watcher?.close();
     adobe = null;
-    send('fonts:activation', { deckId, finished: true, done, total: list.length });
+    send('fonts:activation', { deckId, finished: true, done, adobeOnly, total: list.length });
   });
   show();
   return { ok: true };

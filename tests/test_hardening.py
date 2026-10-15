@@ -75,3 +75,19 @@ def test_broken_font_link_doesnt_stop_the_installed_list(tmp_path, monkeypatch):
     os.symlink(tmp_path / "gone.ttf", fonts / "Gone.ttf")
     monkeypatch.setattr(fonts_install, "font_dirs", lambda: [fonts])
     assert fonts_install.installed()["families"] == set()
+
+
+def test_creative_cloud_install_state_decides_if_powerpoint_can_use_it(tmp_path, monkeypatch):
+    """David 2026-10-15: Adobe added 'Abadi MT Pro' for Adobe apps only (state CC); older fonts are OS-wide."""
+    from engine.core import adobe_fonts
+    x = tmp_path / "entitlements.xml"
+    x.write_text("<fonts>"
+                 "<font><properties><familyName>Abadi MT Pro</familyName><familyURL>https://fonts.adobe.com/fonts/abadi"
+                 "</familyURL><installState>CC</installState></properties></font>"
+                 "<font><properties><familyName>Bebas Neue</familyName><familyURL>https://fonts.adobe.com/fonts/bebas-neue"
+                 "</familyURL><installState>OS</installState></properties></font></fonts>", encoding="utf-8")
+    monkeypatch.setattr(adobe_fonts, "entitlements_path", lambda: x)
+    assert adobe_fonts.added_state("Abadi", "https://fonts.adobe.com/fonts/abadi") == "CC"
+    assert adobe_fonts.added_state("Abadi") == "CC"              # by the page slug, without the link
+    assert adobe_fonts.added_state("Bebas Neue") == "OS"
+    assert adobe_fonts.added_state("Gotham") is None

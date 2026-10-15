@@ -101,6 +101,7 @@ def _main(argv=None) -> int:
     fa.add_argument("--json", action="store_true")
     fh = fsub.add_parser("here", help="is each family on this computer now (installed, or via Creative Cloud)")
     fh.add_argument("--family", action="append", required=True)
+    fh.add_argument("--link", action="append", default=[], help="the Adobe Fonts page of each --family, same order")
     fh.add_argument("--json", action="store_true")
     fi = fsub.add_parser("installed", help="fonts SlideTistic installed")
     fi.add_argument("--json", action="store_true")
@@ -500,9 +501,15 @@ def _fonts(args, checks) -> int:
     if args.fonts_cmd == "here":
         from .core import adobe_fonts
         have = fonts_install.installed()
-        for fam in args.family:
+        links = args.link + [None] * len(args.family)
+        for fam, link in zip(args.family, links):
             keys = {fam.casefold(), adobe_fonts.base_family(fam).casefold()}
             where = ("creative_cloud" if keys & have["creative_cloud"] else "installed" if keys & have["families"] else None)
+            state = adobe_fonts.added_state(fam, link)
+            if where is None and state == "OS":
+                where = "creative_cloud"
+            elif where is None and state == "CC":
+                where = "adobe_apps_only"       # added, but only Adobe's apps can use it: PowerPoint can't
             out({"type": "here", "family": fam, "here": where, "message": f"{fam}: {where or 'not on this computer'}"})
         return 0
     if args.fonts_cmd == "installed":
