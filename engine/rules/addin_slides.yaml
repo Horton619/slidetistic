@@ -1,0 +1,6 @@
+# Slides an add-in owns (David 2026-10-15: "Slido slides integrated through an app; not to be touched and they
+# don't have a real problem"). The add-in draws its own content over the slide at show time, so what's saved in the
+# file is a stand-in. Findings on these slides are information only: never counted, never fixed.
+# A slide belongs to an add-in when one of its tags (ppt/tags/*.xml) starts with a prefix below.
+# Add a line when another add-in turns up (Mentimeter, Poll Everywhere, …); no code change needed.
+Slido: [SLIDO_]

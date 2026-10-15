@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
-from . import rules
+from . import addins, rules
 from .check import Check, Context
 from .deck import Deck
 from .edits import EditConflict, EditSession, FixRefused
@@ -145,7 +145,7 @@ def _fit_pass(deck, fitters, edits, ctx, config, outcome, errors, emit):
                 for cls in fitters:
                     check = cls()
                     edits.begin(cls)
-                    found = check.detect(deck, rctx)
+                    found = addins.mark(deck, check.detect(deck, rctx))
                     if dirty is not None:       # a slide no fix touched last round has nothing new to find
                         found = [f for f in found if f.slide in dirty]
                     for f in found:
@@ -346,7 +346,7 @@ def _fit_problems(deck, fitters, layout, ctx, n, cache: dict | None = None) -> s
         rctx = replace(ctx, layout=layout)
         by_slide: dict[int, set] = {}
         for cls in fitters:
-            for f in cls().detect(deck, rctx):
+            for f in addins.mark(deck, cls().detect(deck, rctx)):
                 if not f.informational and f.status in PROBLEM:
                     by_slide.setdefault(f.slide, set()).add((f.check_id, f.shape_id, f.subject))
         if cache is None:
@@ -453,7 +453,7 @@ def detect_all(deck: Deck, checks: list[type[Check]], config: RunConfig, ctx: Co
     for n, cls in enumerate(enabled, 1):
         emit({"type": "progress", "stage": "scan", "check": cls.id, "index": n, "total": len(enabled)})
         try:
-            found = cls().detect(deck, ctx)
+            found = addins.mark(deck, cls().detect(deck, ctx))
         except Exception as e:  # noqa: BLE001 — a broken check becomes a report entry, not a crash
             found = [Finding(cls.id, Status.TOOL_ERROR, f"{cls.title} couldn't run: {e}",
                              evidence={"exception": type(e).__name__})]
@@ -520,7 +520,7 @@ def repair(path, checks: list[type[Check]], config: RunConfig, out_path: Path | 
         check = cls()
         edits.begin(cls)
         try:
-            current = check.detect(deck, ctx)
+            current = addins.mark(deck, check.detect(deck, ctx))
         except Exception:  # noqa: BLE001 — already reported as tool_error by the first scan
             continue
         for f in current:

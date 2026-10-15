@@ -156,7 +156,9 @@ class TextOutsideSafeZone(Check):
 
 def _undrawn(deck, sv, st) -> tuple[int, list[str]]:
     """(words of the box PowerPoint didn't draw, the edges its drawn text reaches) when both are non-zero."""
-    if sv is None or not st.lines:
+    if sv is None or not st.lines or sv.rotation:
+        # Rotated text doesn't come out of the PDF as clean lines, so its words can't be counted this way
+        # (a Slido corner ribbon at 45° read as off every edge, David 2026-10-15).
         return 0, []
     from engine.core.content import shape_text
     from engine.core.layout.pdf import _tokens

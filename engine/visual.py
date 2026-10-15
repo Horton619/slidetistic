@@ -117,8 +117,8 @@ def plan(result, original: Path, mended: Path | None) -> list[SlideVisual]:
 
     shapes = {(s.slide_number, s.shape_id): s for s in current.iter_shapes()}
     for f in result.findings:
-        if f.status not in (Status.RED, Status.YELLOW) or not f.slide:
-            continue
+        if f.status not in (Status.RED, Status.YELLOW) or not f.slide or f.informational:
+            continue            # information (an add-in's slide) draws no box and puts no slide in a tier
         if "box_emu" in f.evidence:            # layout checks outline the drawn text itself
             geom = pct(*f.evidence["box_emu"])
         elif f.shape_id and (f.slide, f.shape_id) in shapes and shapes[(f.slide, f.shape_id)].bounds:
