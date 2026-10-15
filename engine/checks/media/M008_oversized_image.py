@@ -23,5 +23,7 @@ class OversizedImage(Check):
                     slide=pic.sv.slide_number, shape_id=pic.sv.shape_id, shape_name=pic.sv.name, subject="oversized",
                     evidence={"px": [pic.px_w, pic.px_h], "shown_px": pic.shown_px, "mb": round(pic.mb, 1),
                               "rule": f"{pic.ratio:.1f}× more pixels than shown (limit {self.threshold(ctx, 'oversize_ratio')}×) "
-                                      f"and ≥{self.threshold(ctx, 'oversize_min_mb')} MB"}))
+                                      f"and ≥{self.threshold(ctx, 'oversize_min_mb')} MB",
+                              # The Compress pictures offer (M013) covers it deck-wide (David 2026-10-15): a note here.
+                              "note": True}))
         return findings

@@ -22,7 +22,8 @@ offslide_tolerance_in: 0.02     # G001/G002: overhangs smaller than this are ign
 safe_zone_pct: 5                # David 2026-10-10: text stays inside a 5% border on every edge
 header_footer_band_pct: 15      # David 2026-10-12: text drawn entirely in the top/bottom 15% is a header/footer: never moved, not flagged for the border
 safe_zone_fix_min_area_pct: 25  # David 2026-10-12: only blocks covering this much of the slide are pulled in from the border (votes: 14 👍/34 👎 vs 21/164 below)
-l011_note_below_share_pct: 15   # L011: text less than this much over a picture is a Note, not a yellow (170 of 321 suite yellows)
+l011_note_below_share_pct: 101  # L011: text less than this much over a picture is a Note, not a yellow. 101 = always a
+                                # note (David 2026-10-15: titles over hero photos and gradients are designed; was 15)
 on_shape_min_overlap_pct: 80    # text box this much over a filled shape "sits on" it: the two move together or not at all
 fit_min_line_spacing_pct: 85    # fit fixes never tighten line spacing below this share of the original
 fit_max_font_shrink_pct: 15     # last resort: font may shrink at most this much (David 2026-10-10: raised from 10)

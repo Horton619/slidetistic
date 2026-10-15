@@ -358,9 +358,16 @@ def drawn_text(layout, deck, sv, tol: float) -> Drawn | None:
     from ..content import is_hidden, shape_text
     if layout is None or is_hidden(deck.slides[sv.slide_number - 1]):
         return None
-    total = len(_tokens(shape_text(sv.shape)))
+    expected = [t.casefold() for t in _tokens(shape_text(sv.shape))]
+    total = len(expected)
     st = layout.measure(sv.slide_number, sv.shape_id)
-    drawn = sum(len(l.tokens) for l in st.lines) if st else 0
+    got = [t.casefold() for l in st.lines for t in l.tokens] if st else []
+    drawn = len(got)
+    # Words off an edge are lost from the END of the text (right/bottom) or its START (left/top). When what's drawn
+    # isn't exactly the start or end of the box's words, the gap is a PDF quirk (table cells, number columns,
+    # superscripts), not text off the slide (David 2026-10-15: DCS slide 39's table, "5 of 41 words off").
+    if got and drawn < total and expected[:drawn] != got and expected[-drawn:] != got:
+        drawn = total
     b = st.bounds if st else None
     edges = []
     if b:

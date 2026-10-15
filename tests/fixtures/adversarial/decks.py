@@ -509,7 +509,7 @@ def _(path):
 
 @deck("G001-rotated-corner", "bad-design",
       "Box rotated 30° near the right edge: its corner leaves the slide. G003 yellow; G001 skips rotated text.",
-      expect=[E("G003", "yellow")], absent=["G001"])
+      expect=[E("G003", "note")], absent=["G001"])
 def _(path):
     prs = new_deck(WIDE)
     s = blank(prs)
@@ -564,7 +564,7 @@ def _(path):
 
 @deck("G003-rotated-flipped", "bad-design",
       "Text at 90° and 270°, and a text box with flipH (mirror-image text).",
-      expect=[E("G003", "yellow")])
+      expect=[E("G003", "note")])
 def _(path):
     prs = new_deck(WIDE)
     s = blank(prs)
@@ -577,7 +577,7 @@ def _(path):
 
 @deck("G003-ea-vertical", "google",
       "Vertical text by bodyPr vert='eaVert' (and 'vert270'), not by rotation. It's sideways text all the same.",
-      expect=[E("G003", "yellow")])
+      expect=[E("G003", "note")])
 def _(path):
     prs = _google_deck()
     s = blank(prs)
@@ -980,7 +980,7 @@ def _(path):
       "Slide 1: 2400×1800 noisy photo (~2.5 MB) shown 1.5 in wide (oversized). Slide 2: 200 px logo stretched "
       "to full screen (low-res). Slide 3: a 1600 px photo cropped to its middle 15% and shown full width (low-res "
       "after crop).",
-      expect=[E("M008", "yellow", slide=1), E("M009", "yellow", slide=2), E("M009", "yellow", slide=3)], commit=False)
+      expect=[E("M008", "note", slide=1), E("M009", "yellow", slide=2), E("M009", "yellow", slide=3)], commit=False)
 def _(path):
     prs = _canva_deck()
     s = blank(prs)
@@ -1989,7 +1989,7 @@ def _(path):
       "off the left with a group child off too, rotated label, emoji, mailto link, 'Click to add text', an empty "
       "slide, Source Sans Pro.",
       kind="sink",
-      expect=[E("F007", "red"), E("M006", "yellow"), E("G001", "red"), E("G003", "yellow"), E("P004", "yellow"),
+      expect=[E("F007", "red"), E("M006", "yellow"), E("G001", "red"), E("G003", "note"), E("P004", "yellow"),
               E("C001", "red"), E("C002", "yellow"), E("F011", "yellow"), E("X001", "info", subject="google")])
 def _(path):
     prs = _google_deck()

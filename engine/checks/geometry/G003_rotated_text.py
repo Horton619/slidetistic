@@ -21,7 +21,10 @@ class RotatedText(Check):
                     else "Text runs vertically (text direction)")
             out.append(Finding(self.id, Status.YELLOW, what + ". SlideTistic won't move it automatically.",
                                slide=sv.slide_number, shape_id=sv.shape_id, shape_name=sv.name, subject="rotated",
-                               evidence={"rotation": round(sv.rotation, 1), "flipped": sv.flipped, "vert": vert}))
+                               evidence={"rotation": round(sv.rotation, 1), "flipped": sv.flipped, "vert": vert,
+                                         # Rotated text is nearly always designed (curved labels, ribbons): a note,
+                                         # not a yellow to look at (David 2026-10-15).
+                                         "note": True}))
         return out
 
 
