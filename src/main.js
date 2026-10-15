@@ -503,66 +503,67 @@ const fontsHere = async (families, links = []) => {
   return Object.fromEntries(r.events.filter((e) => e.type === 'here').map((e) => [e.family, e.here]));
 };
 
-// Guided Adobe Fonts activation (David 2026-10-13). A window on each font's Adobe page; David signs in once
-// (kept in its own session) and clicks Add himself: Adobe's terms rule out clicking it for him. The app
-// watches Creative Cloud's font folder, moves to the next font when this one arrives, and closes at the end.
+// Guided Adobe Fonts activation (David 2026-10-13). Each font's Adobe page opens in David's own browser, where he's
+// signed in (2026-10-15: an in-app window asked for a login every time); he clicks Add himself (Adobe's terms rule
+// out clicking it for him). The app watches Creative Cloud's font records and opens the next page when this font
+// arrives. The banner has Next font (skip) and Stop.
 let adobe = null;
 const CC_FONTS = isMac ? path.join(os.homedir(), 'Library/Application Support/Adobe/CoreSync/plugins/livetype')
   : path.join(process.env.APPDATA || os.homedir(), 'Adobe/CoreSync/plugins/livetype');
+function adobeStatus() {
+  if (!adobe) return;
+  send('fonts:activation', { deckId: adobe.deckId, current: adobe.list[adobe.i]?.family || null, index: adobe.i,
+    total: adobe.list.length, done: adobe.done, adobeOnly: adobe.adobeOnly, skipped: adobe.skipped });
+}
+function adobeFinish() {
+  if (!adobe) return;
+  const { deckId, done, adobeOnly, skipped, list } = adobe;
+  clearInterval(adobe.timer);
+  adobe.watcher?.close();
+  adobe = null;
+  send('fonts:activation', { deckId, finished: true, done, adobeOnly, skipped, total: list.length });
+}
+function adobeShow() {
+  if (adobe.i >= adobe.list.length) { adobeFinish(); return; }
+  shell.openExternal(adobe.list[adobe.i].link);
+  adobeStatus();
+}
+async function adobeCheck() {
+  if (!adobe || adobe.checking) return;
+  adobe.checking = true;
+  const it = adobe.list[adobe.i];
+  const here = await fontsHere([it.family], [it.link]);
+  if (!adobe) return;
+  adobe.checking = false;
+  if (!here[it.family] || adobe.list[adobe.i] !== it) return;
+  // Added for Adobe's apps only (David 2026-10-15, Abadi MT Pro): PowerPoint can't use it. Say so, move on.
+  if (here[it.family] === 'adobe_apps_only') adobe.adobeOnly.push(it.family);
+  else adobe.done.push(it.family);
+  log('info', 'adobe fonts', here[it.family], it.family);
+  adobe.i += 1;
+  adobeShow();
+}
 ipcMain.handle('fonts:activate', (_e, deckId, items) => {
   const list = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.family === 'string'
     && typeof i.link === 'string' && /^https:\/\/fonts\.adobe\.com\//.test(i.link)).slice(0, 20);
   if (!list.length) return { error: 'nothing to activate' };
-  if (adobe) { adobe.win.focus(); return { busy: true }; }
-  const win = new BrowserWindow({
-    width: 1180, height: 840, parent: mainWindow, title: 'Adobe Fonts',
-    webPreferences: { partition: 'persist:adobe-fonts', sandbox: true, contextIsolation: true, nodeIntegration: false },
-  });
-  // Sign-in hops between Adobe, Google and Apple pages: any https page may load here; nothing else.
-  win.webContents.on('will-navigate', (e, url) => { if (!/^https:\/\//.test(url)) e.preventDefault(); });
-  win.webContents.setWindowOpenHandler(({ url }) => (/^https:\/\//.test(url) ? { action: 'allow' } : { action: 'deny' }));
-  adobe = { win, deckId, list, i: 0, done: [], adobeOnly: [], timer: null, watcher: null, checking: false };
-  const status = () => send('fonts:activation', {
-    deckId, current: list[adobe.i]?.family || null, index: adobe.i, total: list.length, done: adobe.done,
-    adobeOnly: adobe.adobeOnly });
-  const show = () => {
-    const it = list[adobe.i];
-    win.setTitle(`Adobe Fonts: ${it.family} (${adobe.i + 1} of ${list.length}) · click "Add" on the page`);
-    win.loadURL(it.link);
-    status();
-  };
-  const check = async () => {
-    if (!adobe || adobe.checking) return;
-    adobe.checking = true;
-    const it = list[adobe.i];
-    const here = await fontsHere([it.family], [it.link]);
-    if (!adobe) return;
-    adobe.checking = false;
-    if (!here[it.family]) return;
-    // Added for Adobe's apps only (David 2026-10-15, Abadi MT Pro): PowerPoint can't use it. Say so, move on.
-    if (here[it.family] === 'adobe_apps_only') adobe.adobeOnly.push(it.family);
-    else adobe.done.push(it.family);
-    log('info', 'adobe fonts', here[it.family], it.family);
-    adobe.i += 1;
-    if (adobe.i >= list.length) { win.close(); return; }
-    show();
-  };
+  if (adobe) { shell.openExternal(adobe.list[adobe.i].link); return { busy: true }; }
+  adobe = { deckId, list, i: 0, done: [], adobeOnly: [], skipped: [], timer: null, watcher: null, checking: false };
   let debounce = null;
   try {
-    adobe.watcher = fs.watch(CC_FONTS, { recursive: true }, () => { clearTimeout(debounce); debounce = setTimeout(check, 1500); });
+    adobe.watcher = fs.watch(CC_FONTS, { recursive: true }, () => { clearTimeout(debounce); debounce = setTimeout(adobeCheck, 1500); });
   } catch (err) { log('warn', 'adobe fonts', 'watch failed', err.message); }
-  adobe.timer = setInterval(check, 8000);       // the folder watch can miss events; check anyway
-  win.on('closed', () => {
-    const done = adobe ? adobe.done : [];
-    const adobeOnly = adobe ? adobe.adobeOnly : [];
-    clearInterval(adobe?.timer);
-    adobe?.watcher?.close();
-    adobe = null;
-    send('fonts:activation', { deckId, finished: true, done, adobeOnly, total: list.length });
-  });
-  show();
+  adobe.timer = setInterval(adobeCheck, 8000);       // the folder watch can miss events; check anyway
+  adobeShow();
   return { ok: true };
 });
+ipcMain.handle('fonts:activateNext', () => {
+  if (!adobe) return;
+  adobe.skipped.push(adobe.list[adobe.i].family);
+  adobe.i += 1;
+  adobeShow();
+});
+ipcMain.handle('fonts:activateStop', () => adobeFinish());
 
 // Testing aid (David 2026-10-12): the deck's fonts in '<deck> - fonts' next to it, named by what they are;
 // installed / Creative Cloud fonts copied, free ones downloaded. Then show the folder in Finder/Explorer.

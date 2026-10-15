@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('slidetistic', {
   getFonts: (file, families) => ipcRenderer.invoke('fonts:get', file, families),
   adobeFonts: (families) => ipcRenderer.invoke('fonts:adobe', families),
   activateFonts: (deckId, items) => ipcRenderer.invoke('fonts:activate', deckId, items),
+  activateNext: () => ipcRenderer.invoke('fonts:activateNext'),
+  activateStop: () => ipcRenderer.invoke('fonts:activateStop'),
   onFontActivation: (cb) => listen('fonts:activation', cb),
   loadChecked: (key) => ipcRenderer.invoke('checked:load', key),
   setChecked: (key, slide, sig) => ipcRenderer.invoke('checked:set', key, slide, sig),

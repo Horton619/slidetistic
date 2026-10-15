@@ -231,10 +231,10 @@ async function loadChecked(deck) {
   deck.checked = key ? await api.loadChecked(key) : {};
 }
 
+// Broken SLIDES only. Deck-wide reds (missing fonts) are the banners' job: a "Whole deck" card repeating them
+// crowded the review (David 2026-10-15).
 function brokenStats(deck) {
   const reds = (deck?.review?.data?.visuals || []).filter((v) => v.tier === 1);
-  const whole = deckItem(deck);
-  if (whole) reds.unshift(whole);
   return { reds, done: reds.filter((v) => isChecked(deck, v)).length };
 }
 
@@ -277,9 +277,8 @@ function brokenStrip(deck) {
   const filters = REVIEW_FILTERS.map(([k, l]) => `<button data-rfilter="${k}" class="${S.reviewFilter === k ? 'on' : ''}">${l}</button>`).join('');
   let state;
   if (!reds.length) state = '<span class="ok">✓ No broken slides</span>';
-  else if (done === reds.length) state = '<span class="ok">✓ Every broken item checked</span>';
-  else state = `<span class="bad">✕ ${reds.length} broken · ${done} checked off</span>` +
-               `<span class="note">${reds.some((v) => v.deck) ? 'whole-deck issues + ' : ''}${reds.filter((v) => !v.deck).length} slide${reds.filter((v) => !v.deck).length === 1 ? '' : 's'}</span>`;
+  else if (done === reds.length) state = '<span class="ok">✓ Every broken slide checked</span>';
+  else state = `<span class="bad">✕ ${reds.length} broken slide${reds.length === 1 ? '' : 's'} · ${done} checked off</span>`;
   return `<div class="broken-strip ${!reds.length || done === reds.length ? 'clear' : ''}">${state}<span class="grow"></span>` +
          `<div class="seg" title="Show only some slides (R: Broken only)">${filters}</div></div>`;
 }
@@ -579,7 +578,17 @@ function bannerList(deck) {
   const onAdobe = rest.filter((r) => deck.adobe?.[r.family]?.info);
   const nowhere = rest.filter((r) => !onAdobe.includes(r));
   const busy = deck.fontsBusy;
-  if (free.length) {
+  // Get fonts asks right here, in the banner that was clicked (David 2026-10-15: jumping to the Fonts tab, with the
+  // question in a table row below the fold, looked like nothing happened).
+  if (deck.fontsAskBanner && deck.fontsAsk?.length && !busy) {
+    const rowsAsked = rows.filter((r) => deck.fontsAsk.includes(r.family) && r.free);
+    const what = rowsAsked.map((r) => `${esc(r.family)} (${esc((r.free.variants || []).map((v) => ({ 100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black' })[v[0]] || v[0]).join(', '))})`).join(', ');
+    const from = [...new Set(rowsAsked.map((r) => (r.free.publisher ? `${r.free.publisher}: ${r.free.license || 'free download'}` : 'Fontsource / Google Fonts: open licence')))].join('; ');
+    out.push({ key: deck.fontsAskKey || 'fonts-free', lvl: 'y', icon: AA,
+      msg: `<b>Install ${what} for you on this ${isMac ? 'Mac' : 'PC'}?</b> <span class="dim">${esc(from)}. No admin rights; restart PowerPoint afterwards.</span>`,
+      actions: [{ act: 'fonts-install', label: 'Install', primary: true }, { act: 'fonts-cancel', label: 'Cancel' }] });
+  }
+  if (free.length && !(deck.fontsAskBanner && deck.fontsAsk?.length && !busy)) {
     out.push({ key: 'fonts-free', lvl: 'r', icon: AA,
       msg: free.length === 1 ? `<b>${esc(free[0].family)} is missing</b>${free[0].slides.length ? ` (${slideRefs(free[0].slides)})` : ''} and it's a free download.`
         : `<b>${free.length} missing fonts are free downloads</b>: ${nameList(free)}.`,
@@ -595,8 +604,9 @@ function bannerList(deck) {
     const act = deck.activating;
     out.push({ key: 'fonts-adobe', lvl: 'r', icon: AA,
       msg: `<b>${plural(onAdobe.length, 'font is', 'fonts are')} on Adobe Fonts</b>: ${nameList(onAdobe)}. Activate ${onAdobe.length > 1 ? 'them' : 'it'}, then collect.` +
-        (act ? ` <span class="dim">Adding ${esc(act.current || '…')} (${act.index + 1} of ${act.total}): click Add on Adobe's page.</span>` : ''),
-      actions: [{ act: 'adobe', label: act ? 'Show Adobe Fonts window' : 'Activate in Adobe Fonts ↗' }] });
+        (act ? ` <span class="dim">${esc(act.current || '…')} (${act.index + 1} of ${act.total}): click Add on its page in your browser; the next one opens by itself.</span>` : ''),
+      actions: act ? [{ act: 'adobe', label: 'Open page again ↗' }, { act: 'adobe-next', label: 'Next font' }, { act: 'adobe-stop', label: 'Stop' }]
+        : [{ act: 'adobe', label: 'Activate in Adobe Fonts ↗' }] });
   }
   if (canvaOnly.length) {
     out.push({ key: 'fonts-canva', lvl: 'r', icon: AA,
@@ -695,13 +705,19 @@ function bannerAction(deck, el) {
   if (act === 'tab') { setTab(arg); return; }
   if (act === 'collect') { collectFonts(deck); return; }
   if (act === 'adobe') { activateAdobe(deck); return; }
+  if (act === 'adobe-next') { api.activateNext(); return; }
+  if (act === 'adobe-stop') { api.activateStop(); return; }
   if (act === 'get-fonts' || act === 'get-font') {
-    // The Fonts tab shows each font's licence and asks before installing (never accepted on David's behalf).
+    // Asks first, with each font's source and licence (never accepted on David's behalf).
     deck.fontsAsk = act === 'get-font' ? [arg]
       : (deck.review.data.fonts || []).filter((r) => r.level === 'r' && r.free && !r.here).map((r) => r.family);
-    if (S.tab !== 'fonts') setTab('fonts'); else renderFonts(deck);
+    deck.fontsAskBanner = true;
+    deck.fontsAskKey = act === 'get-font' ? `font-note:${arg}` : 'fonts-free';
+    render();
     return;
   }
+  if (act === 'fonts-install') { const fams = deck.fontsAsk || []; deck.fontsAsk = null; deck.fontsAskBanner = false; getFonts(deck, fams); return; }
+  if (act === 'fonts-cancel') { deck.fontsAsk = null; deck.fontsAskBanner = false; render(); return; }
   if (act === 'link') {
     api.openExternal(arg);
     const f = (deck.review.data.findings || []).find((x) => ['M005', 'M006'].includes(x.check_id));
@@ -740,7 +756,7 @@ async function activateAdobe(deck) {
   const items = rows.map((r) => ({ family: r.family, link: deck.adobe[r.family].info.link }));
   const r = await api.activateFonts(deck.id, items);
   if (r?.error) { toast(`Couldn't open Adobe Fonts: ${r.error}`); return; }
-  if (r?.ok) toast('Sign in to Adobe if asked, then click "Add" on each font\'s page. The window moves on by itself.');
+  if (r?.ok) toast('Opened in your browser: click "Add" on the font\'s page. The next font opens by itself once Creative Cloud has it.');
 }
 
 function onFontActivation(ev) {
@@ -932,10 +948,8 @@ function renderReview(deck) {
     html = `<div class="tuning-bar"><b>Tuning mode</b><span>${esc(tuningLine(deck))}</span><span class="grow"></span>` +
            `<button class="btn p" id="btn-vote">Start voting <kbd>V</kbd></button></div>` + html;
   }
-  const whole = deckItem(deck);
   for (const t of [1, 2, 3]) {
     const block = visuals.filter((v) => v.tier === t && inFilter(v));
-    if (t === 1 && whole) block.unshift(whole);
     if (!block.length) continue;
     const done = t === 1 ? ` · ${block.filter((v) => isChecked(deck, v)).length} checked` : '';
     html += `<h3 class="tier t${t}">${t}. ${tiers[t]} <small>· ${block.length} slide${block.length > 1 ? 's' : ''}${done}</small></h3>`;

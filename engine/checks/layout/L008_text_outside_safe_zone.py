@@ -162,8 +162,17 @@ def _undrawn(deck, sv, st) -> tuple[int, list[str]]:
         return 0, []
     from engine.core.content import shape_text
     from engine.core.layout.pdf import _tokens
-    lost = len(_tokens(shape_text(sv.shape))) - sum(len(l.tokens) for l in st.lines)
-    if lost <= 0:
+    expected = [t.casefold() for t in _tokens(shape_text(sv.shape))]
+    drawn = [t.casefold() for l in st.lines for t in l.tokens]
+    lost = len(expected) - len(drawn)
+    if lost <= 0 or not drawn:
+        return 0, []
+    # Clipping loses the END of the text (right or bottom edge) or its START (left or top): everything drawn is
+    # then exactly the beginning, or the end, of the box's words. Words missing from the middle are a PDF quirk
+    # (number columns, superscripts "VELOCITY¹"), not text off the slide (David 2026-10-15: false reds on DCS).
+    at_end = expected[:len(drawn)] == drawn
+    at_start = expected[-len(drawn):] == drawn
+    if not (at_end or at_start):
         return 0, []
     W, H = deck.slide_width, deck.slide_height
     l, t, r, b = st.bounds
@@ -171,8 +180,8 @@ def _undrawn(deck, sv, st) -> tuple[int, list[str]]:
     # Mac leaves out whole words, so the drawn text stops up to a word short of the edge: about two line heights
     # for big text (48 pt words are ~1 in wide; adversarial G001 stopped 0.7 in short).
     side = max(228600, 2 * line_h)
-    edges = [e for e, hit in (("right", r >= W - side), ("left", l <= side), ("bottom", b >= H - 1.5 * line_h),
-                              ("top", t <= 1.5 * line_h)) if hit]
+    edges = [e for e, hit in (("right", at_end and r >= W - side), ("bottom", at_end and b >= H - 1.5 * line_h),
+                              ("left", at_start and l <= side), ("top", at_start and t <= 1.5 * line_h)) if hit]
     return (lost, edges) if edges else (0, [])
 
 

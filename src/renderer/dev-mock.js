@@ -34,6 +34,7 @@
     adobeFonts: async (fams) => { await new Promise((r) => setTimeout(r, 700)); return Object.fromEntries(fams.map((f) => [f, { info: /museo|gotham|proxima/i.test(f) ? { name: f, link: `https://fonts.adobe.com/fonts/${f.toLowerCase().replace(/\W+/g, '-')}` } : null }])); },
     activateFonts: async (deckId, items) => { const fams = items.map((i) => i.family); setTimeout(() => activation.forEach((cb) => cb({ deckId, finished: true, done: fams.slice(0, 1), total: fams.length })), 2500); activation.forEach((cb) => cb({ deckId, current: fams[0], index: 0, total: fams.length, done: [] })); return { ok: true }; },
     onFontActivation: (cb) => { activation.push(cb); return () => {}; },
+    activateNext: async () => {}, activateStop: async () => {},
     collectFonts: async () => { await new Promise((r) => setTimeout(r, 900)); return { folder: '/Users/demo/Shows/Deck - fonts', events: [{ type: 'font', name: 'Proxima Nova Bold', how: 'Creative Cloud (link)' }, { type: 'font', name: 'Museo Sans 500 Regular', how: 'not found' }] }; },
     getFonts: async (_f, fams) => { await new Promise((r) => setTimeout(r, 1200)); return { events: fams.map((f) => ({ type: 'font', family: f, ok: true, license: 'OFL-1.1', message: `${f} (OFL-1.1): 400 installed` })).concat([{ type: 'done', message: 'Restart PowerPoint to use the new fonts.' }]) }; },
     loadChecked: async (k) => ({ ...(checked[k] || {}) }),
